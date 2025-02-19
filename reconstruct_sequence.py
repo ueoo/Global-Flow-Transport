@@ -54,15 +54,15 @@ def build_camera_from_sFcallibration(position, forward, up, right, resolution, f
 	cam_focus = flip_z(focus)
 	aspect = fov_horizontal/fov_vertical #resolution[2]/resolution[1] #W/H
 	cam_dh = focus_depth_clip*0.5 #depth half
-	
+
 	dist = np.linalg.norm(cam_focus-pos)
 	cam = Camera(MatrixTransform.from_fwd_up_right_pos(fwd, up, right, pos), nearFar=[dist-cam_dh,dist+cam_dh], fov=fov_horizontal, aspect=aspect, static=None)
 	cam.transform.grid_size = copy.copy(resolution)
-	
+
 	return cam
 
 def build_scalarFlow_cameras(setup, ids=[2,1,0,4,3], focus_depth_clip=1.0, interpolation_weights=[]):
-	
+
 	scalarFlow_cameras = []
 	cam_resolution_scale = 1./setup.training.train_res_down #0.125#0.3
 	train_cam_resolution = copy.copy(setup.rendering.main_camera.base_resolution)
@@ -70,25 +70,25 @@ def build_scalarFlow_cameras(setup, ids=[2,1,0,4,3], focus_depth_clip=1.0, inter
 	train_cam_resolution[2] = int(train_cam_resolution[2]*cam_resolution_scale)
 	log.info('scalarFlow train camera resolution: %s', str(train_cam_resolution))
 #	cam_dh = focus_depth_clip*0.5 #depth half
-	
+
 	for cam_id in ids:
 		cam_calib = setup.calibration[str(cam_id)]
 		if cam_calib.fov_horizontal is None:
 			cam_calib.fov_horizontal = setup.calibration.fov_horizontal_average
 		if cam_calib.fov_vertical is None:
 			cam_calib.fov_vertical = setup.calibration.fov_vertical_average
-	
+
 	for i in range(len(ids)):
 		cam_calib = setup.calibration[str(ids[i])]
 		cam = build_camera_from_sFcallibration(**cam_calib, **setup.calibration, resolution=train_cam_resolution, focus_depth_clip=focus_depth_clip)
 		scalarFlow_cameras.append(cam)
-		
+
 		if interpolation_weights and i<(len(ids)-1):
 			for w in interpolation_weights:
 				cam_calib = interpolate_camera_callibration(setup.calibration[str(ids[i])], setup.calibration[str(ids[i+1])], w, setup.calibration)
 				cam = build_camera_from_sFcallibration(**cam_calib, **setup.calibration, resolution=train_cam_resolution, focus_depth_clip=focus_depth_clip)
 				scalarFlow_cameras.append(cam)
-		
+
 	return scalarFlow_cameras
 
 #requires cv2
@@ -108,7 +108,7 @@ def interpolate_camera_callibration(cal1, cal2, interpolation_weight, calib_base
 		calib["position"] = lerp_vector(cal1["position"], cal2["position"], t)
 	calib["fov_horizontal"] = lerp(cal1["fov_horizontal"], cal2["fov_horizontal"], t)
 	calib["fov_vertical"] = lerp(cal1["fov_vertical"], cal2["fov_vertical"], t)
-	
+
 	return calib
 
 def interpolate_image(target1, target2, interpolation_weights, use_backwards_flow=True):
@@ -116,7 +116,7 @@ def interpolate_image(target1, target2, interpolation_weights, use_backwards_flo
 	if np.isscalar(interpolation_weights):
 		single = True
 		interpolation_weights = [interpolation_weights]
-	
+
 	is_tf = False
 	if isinstance(target1, tf.Tensor):
 		target1 = target1.numpy()
@@ -124,15 +124,15 @@ def interpolate_image(target1, target2, interpolation_weights, use_backwards_flo
 	if isinstance(target2, tf.Tensor):
 		target2 = target2.numpy()
 		is_tf = True
-	
+
 	flow = get_dense_optical_flow(target1, target2)
 	if use_backwards_flow:
 		flow_back = get_dense_optical_flow(target2, target1)
 	targets = [lerp_image_2(target1, target2, w, flow, flow_back) if use_backwards_flow else lerp_image(target1, target2, w, flow) for w in interpolation_weights]
-	
+
 	if is_tf:
 		targets = [tf.constant(_) if len(_.shape)==3 else tf.constant(_[...,np.newaxis]) for _ in targets]
-	
+
 	if single:
 		return targets[0]
 	else:
@@ -225,7 +225,7 @@ def create_inflow(hull, hull_height, height):
 	y_hull = tf.reduce_max(hull, axis=(-1,-3)) #H
 	y_idx_min = tf.reduce_min(tf.where(tf.greater_equal(y_hull, hull_threshold)))
 	y_idx_max = y_idx_min + hull_height
-	
+
 	#take max xz extend of hull from hull_min to hull_min+hull_height
 	hull_slice = hull[:,y_idx_min:y_idx_max,:]
 	flat_hull_slice = tf.reduce_max(hull_slice, axis=(-2), keepdims=True)
@@ -235,9 +235,9 @@ def create_inflow(hull, hull_height, height):
 	z_hull_slice_idx = tf.where(tf.greater_equal(tf.reduce_max(flat_hull_slice, axis=(-2,-1)), hull_threshold))
 	z_hull_slice_idx_min = tf.reduce_min(z_hull_slice_idx)
 	z_hull_slice_idx_max = tf.reduce_max(z_hull_slice_idx) +1
-	
+
 	flat_hull_slice = flat_hull_slice[z_hull_slice_idx_min:z_hull_slice_idx_max, :, x_hull_slice_idx_min:x_hull_slice_idx_max]
-	
+
 	if height=='MAX': #extend inflow all the way to the lower end of the grid
 		height = y_idx_max.numpy().tolist()
 	else:
@@ -245,7 +245,7 @@ def create_inflow(hull, hull_height, height):
 	inflow_mask = tf.tile(flat_hull_slice, (1,height,1))
 	inflow_shape = [(z_hull_slice_idx_max-z_hull_slice_idx_min).numpy().tolist(), height, (x_hull_slice_idx_max-x_hull_slice_idx_min).numpy().tolist()]
 	inflow_offset = [z_hull_slice_idx_min.numpy().tolist(), (y_idx_max-height).numpy().tolist(), x_hull_slice_idx_min.numpy().tolist()]
-	
+
 	#return size and (corner)position
 	return inflow_mask, inflow_shape, inflow_offset
 
@@ -253,7 +253,7 @@ def create_inflow(hull, hull_height, height):
 
 def render_cameras(grid_transform, cameras, lights, renderer, img_path, name_pre='img', bkg=None, \
 		format='EXR', img_transfer=None, cut_alpha=True, img_normalize=False):
-	
+
 	imgs = renderer.render_density(grid_transform, lights, cameras, background=bkg, cut_alpha=cut_alpha)#, background=bkg
 	imgs = tf.concat(imgs, axis=0)
 	if not cut_alpha:
@@ -268,9 +268,9 @@ def render_cameras(grid_transform, cameras, lights, renderer, img_path, name_pre
 
 def render_cycle(grid_transform, cameras, lights, renderer, img_path, name_pre='img', steps=12, steps_per_cycle=12, bkg=None, \
 		format='EXR', img_transfer=None, img_stats=True, rotate_cameras=False, cut_alpha=True, img_normalize=False):
-	
+
 	r_step = 360.0/steps_per_cycle
-	
+
 	if renderer.can_render_fused and rotate_cameras:
 		cams = []
 		for camera in cameras:
@@ -282,7 +282,7 @@ def render_cycle(grid_transform, cameras, lights, renderer, img_path, name_pre='
 			bkg = [_ for _ in bkg for i in range(steps)]
 		render_cameras(grid_transform, cams, lights, renderer, img_path, name_pre, bkg, format, img_transfer, cut_alpha, img_normalize)
 		return
-	
+
 	if rotate_cameras:
 		cameras = copy.deepcopy(cameras)
 	else:
@@ -396,16 +396,16 @@ if __name__=='__main__':
 	else:
 		raise ValueError("No setup provided")
 	setup = update_dict_recursive(RECONSTRUCT_SEQUENCE_SETUP, setup, deepcopy=True, new_key='DISCARD_WARN')
-	
+
 	with open(setup["rendering"]["target_cameras"]["calibration_file"], 'r') as calibration_file:
 		cam_setup = json.load(calibration_file)
 	setup['calibration']=cam_setup
 	def flip_z(v):
 		return v*np.asarray([1,1,-1])
-	
+
 	setup = munch.munchify(setup)
 	cam_setup = setup.calibration
-	
+
 	hostname = socket.gethostname()
 	now = datetime.datetime.now()
 	now_str = now.strftime("%y%m%d-%H%M%S")
@@ -431,13 +431,13 @@ if __name__=='__main__':
 	else:
 		setup.paths.path = os.path.join(setup.paths.base, setup.paths.run)
 	#run_path = setup.paths.run
-	
-	
+
+
 	if os.path.isdir(setup.paths.path):
 		setup.paths.path, _ = makeNextGenericPath(setup.paths.path)
 	else:
 		os.makedirs(setup.paths.path)
-	
+
 	setup.paths.log = os.path.join(setup.paths.path, 'log')
 	os.makedirs(setup.paths.log)
 	setup.paths.config = os.path.join(setup.paths.path, 'config')
@@ -447,9 +447,9 @@ if __name__=='__main__':
 		setup.paths.warp_test = os.path.join(setup.paths.path, 'warp_test')
 		os.makedirs(setup.paths.warp_test)
 	#os.makedirs(setup.paths.data)
-	
+
 	sys.stderr = StreamCapture(os.path.join(setup.paths.log, 'stderr.log'), sys.stderr)
-	
+
 	#setup logging
 	log_format = '[%(asctime)s][%(name)s:%(levelname)s] %(message)s'
 	log_formatter = logging.Formatter(log_format)
@@ -476,35 +476,35 @@ if __name__=='__main__':
 		root_logger.addHandler(console)
 	log = logging.getLogger('train')
 	log.setLevel(logging.DEBUG)
-	
+
 	if args.debug:
 		root_logger.setLevel(logging.DEBUG)
 		log.info("Debug output active")
-	
-	
-	
+
+
+
 	with open(os.path.join(setup.paths.config, 'setup.json'), 'w') as config:
 		json.dump(setup, config, sort_keys=True, indent=2)
-	
+
 	sources = [sys.argv[0], "common_setups.py"]
 	sources.extend(os.path.join("lib", _) for _ in os.listdir("lib") if _.endswith(".py"))
 	sources.extend(os.path.join("phitest/render", _) for _ in os.listdir("phitest/render") if _.endswith(".py"))
 	archive_files(os.path.join(setup.paths.config,'sources.zip'), *sources)
-	
+
 	log.info('--- Running test: %s ---', setup.title)
 	log.info('Test description: %s', setup.desc)
 	log.info('Test directory: %s', setup.paths.path)
 	log.info('Python: %s', sys.version)
 	log.info('TensorFlow version: %s', tf.__version__)
 	log.info('host: %s, device: %s, pid: %d', hostname, cudaID, os.getpid())
-	
+
 	if setup.data.rand_seed_global is not None:
 		os.environ['PYTHONHASHSEED']=str(setup.data.rand_seed_global)
 		random.seed(setup.data.rand_seed_global)
 		np.random.seed(setup.data.rand_seed_global)
 		tf.set_random_seed(setup.data.rand_seed_global)
 	log.info("global random seed: %s", setup.data.rand_seed_global)
-	
+
 	profiler = Profiler()
 	renderer = Renderer(profiler,
 		filter_mode=setup.rendering.filter_mode,
@@ -539,7 +539,7 @@ if __name__=='__main__':
 		mipmapping='NONE',
 		blend_mode='ADDITIVE',
 		sample_gradients=False)
-	
+
 	synth_target_renderer = Renderer(profiler,
 		filter_mode=setup.rendering.synthetic_target.filter_mode,
 		mipmapping=setup.rendering.mip.mode,
@@ -550,7 +550,7 @@ if __name__=='__main__':
 		fast_gradient_mip_bias_add=0.0,
 		luma = setup.rendering.luma,
 		fused=setup.rendering.allow_fused_rendering)
-		
+
 	upscale_renderer = Renderer(profiler,
 		filter_mode='LINEAR',
 		boundary_mode=setup.data.velocity.boundary.upper(),
@@ -566,11 +566,11 @@ if __name__=='__main__':
 		sample_gradients=setup.rendering.sample_gradients,
 		fast_gradient_mip_bias_add=0.0,
 		fused=setup.rendering.allow_fused_rendering)
-	
+
 	grad_renderer = vel_renderer
 
-	
-	
+
+
 	pFmt = PartialFormatter()
 	run_index = RunIndex(setup.data.run_dirs, ['recon_seq',])#prefix_voldifrender, recursive=True)
 
@@ -599,12 +599,12 @@ if __name__=='__main__':
 				vel_centered = reshape_array_format(np_data['data'], 'DHWC')
 			vel_grid = VelocityGrid.from_centered(tf.constant(vel_centered, dtype=tf.float32), boundary=boundary, scale_renderer=scale_renderer, warp_renderer=warp_renderer, device=device, var_name=var_name)
 		return vel_grid
-	
-	
-	
+
+
+
 	color_channel = 1 if setup.rendering.monochrome else 3
 	train_res_down=setup.training.train_res_down
-	
+
 	# using scaled up cube here as we have random volume rotation as data augmentation for the generator
 	density_size = [setup.data.grid_size]*3
 	density_size[1] = int(math.ceil(density_size[1] * cam_setup.scale_y))
@@ -613,7 +613,7 @@ if __name__=='__main__':
 	sim_transform = GridTransform(density_size, translation=sim_center, scale=[cam_setup.marker_width]*3, center=True, normalize='MIN')
 	sF_transform = GridTransform([100,178,100], translation=flip_z(cam_setup.volume_offset + np.asarray([0,0,cam_setup.marker_width])), scale=[cam_setup.marker_width]*3, normalize='MIN')
 	density_size = Int3(density_size[::-1])
-	
+
 	cam_resolution = copy.copy(setup.rendering.main_camera.base_resolution) #[256,int(1920*cam_resolution_scale),int(1080*cam_resolution_scale)] #zyx
 	aspect = cam_resolution[2]/cam_resolution[1]
 	cam_resolution[1] *= setup.rendering.main_camera.resolution_scale
@@ -647,17 +647,17 @@ if __name__=='__main__':
 		tmp_cam.transform.parent.rotation_deg = [0,90,0]
 		cameras.append(tmp_cam)
 		del tmp_cam
-	
+
 	for _cam in cameras:
 		renderer.check_LoD(sim_transform, _cam, check_inverse=True, name="main camera")
-	
+
 	scalarFlow_cam_ids = setup.rendering.target_cameras.camera_ids #[2,1,0,4,3] #[0,2,3] #
 	if setup.data.density.target_cam_ids =="ALL":
 		setup.data.density.target_cam_ids = list(range(len(scalarFlow_cam_ids)))
 	view_interpolation_weights = [(_+1)/(setup.training.density.view_interpolation.steps+1) for _ in range(setup.training.density.view_interpolation.steps)]
 	scalarFlow_cameras = build_scalarFlow_cameras(setup, scalarFlow_cam_ids, interpolation_weights=view_interpolation_weights)
 	scalarFlow_cameras_base = [scalarFlow_cameras[_*(setup.training.density.view_interpolation.steps+1)] for _ in range(len(scalarFlow_cam_ids))]
-	
+
 	#train_down_pool = (1, setup.training.train_res_down, setup.training.train_res_down, 1)
 	scalarFlow_cam_focus = flip_z(setup.calibration.focus)#[0.33913451, 0.38741691 -0.05, -0.25786148] #cam_setup.focus']#
 	cam_resolution_scale = 1./setup.training.train_res_down #0.125#0.3
@@ -683,7 +683,7 @@ if __name__=='__main__':
 		log.info('discriminator camera resolution: %s, jitter: %s', str(disc_cam_resolution), setup.training.discriminator.fake_camera_jitter)
 		renderer.check_LoD(sim_transform, disc_camera, check_inverse=True, name="discriminator camera")
 	log.debug('Main camera transform: %s', main_camera.transform)
-	
+
 	lights = []
 		#PointLight(Transform(translation=[-0.5,-0.5,-0.5], parent=Transform()), color=[0.5,0.9,1.0], intensity=2.4, range_scale=7.4),
 		#PointLight(Transform(translation=[0,0,2], parent=Transform(translation=[0,0.2,0], rotation_deg=[0,45,0])), color=[0.75,0.95,1.0], intensity=4, range_scale=1),
@@ -692,29 +692,29 @@ if __name__=='__main__':
 		#PointLight(Transform(translation=[0.2,0,0], parent=Transform()), color=[0.4,0.0,1.0], intensity=2.0, range_scale=12),
 		#PointLight(Transform(translation=[-0.2,0,0], parent=Transform()), color=[0.2,1.0,0.0], intensity=1.4, range_scale=12),
 		#PointLight(Transform(translation=[0,0,2], parent=Transform(translation=scalarFlow_cam_focus, rotation_deg=[-40,0,0])), intensity=setup.rendering.lighting.initial_intensity, range_scale=0.5),
-	
+
 	if setup.rendering.lighting.initial_intensity>=0:
 		lights.append(
 			SpotLight(Transform(translation=[0,0,2], parent=Transform(translation=scalarFlow_cam_focus, rotation_deg=[-40,0,0])), intensity=setup.rendering.lighting.initial_intensity, \
 			cast_shadows=True, shadow_clip=[1.35, 2.65], range_scale=0.825, angle_deg=25., shadow_resolution=setup.rendering.lighting.shadow_resolution, cone_mask=False, \
 			static=sim_transform if setup.rendering.allow_static_cameras else None)
 		)
-	
+
 	if setup.rendering.lighting.ambient_intensity>=0:
 		lights.append(Light(intensity=setup.rendering.lighting.ambient_intensity)) #some simple constant/ambient light as scattering approximation
-	
+
 	for light in lights:
 		if isinstance(light, SpotLight) and light.cast_shadows:
 			renderer.check_LoD(sim_transform, light.shadow_cam, check_inverse=True, name="shadow camera")
-	
-	
+
+
 	shadow_lights = [
 		SpotLight(Transform(translation=[0,0,2], parent=Transform(translation=scalarFlow_cam_focus, rotation_deg=[-40,0,0])), intensity=3.4, \
 		cast_shadows=True, shadow_clip=[1.35, 2.65], range_scale=0.825, angle_deg=25., shadow_resolution=setup.rendering.lighting.shadow_resolution, cone_mask=False, \
 		static=sim_transform if setup.rendering.allow_static_cameras else None),
 		Light(intensity=0.08),
 	]
-	
+
 	synth_target_lights = []
 	if setup.rendering.synthetic_target.initial_intensity>=0:
 		synth_target_lights.append(
@@ -722,12 +722,12 @@ if __name__=='__main__':
 			cast_shadows=True, shadow_clip=[1.35, 2.65], range_scale=0.825, angle_deg=25., shadow_resolution=setup.rendering.lighting.shadow_resolution, cone_mask=False, \
 			static=sim_transform if setup.rendering.allow_static_cameras else None)
 		)
-	
+
 	if setup.rendering.synthetic_target.ambient_intensity>=0:
 		synth_target_lights.append(Light(intensity=setup.rendering.synthetic_target.ambient_intensity))
 	#synth_target_renderer = renderer
-	
-	
+
+
 	if not args.fit:
 		# scene serialization
 		scene = {
@@ -743,35 +743,35 @@ if __name__=='__main__':
 				json.dump(scene, file, default=to_dict, sort_keys=True)#, indent=2)
 			except:
 				log.exception("Scene serialization failed.")
-	
+
 	main_render_ctx = RenderingContext([main_camera], lights, renderer, vel_renderer, setup.rendering.monochrome)
-	
+
 	def render_sequence(sequence, vel_pad, cycle=True, cycle_steps=12, sF_cam=False, render_density=True, render_shadow=True, render_velocity=True):
 		log.debug("Render images for sequence")
 		clip_cams = True
 		with profiler.sample('render sequence'):
 			if cycle:
 				cycle_cams = [main_camera]
-			
+
 			if render_shadow:
 				shadow_cams = [copy.deepcopy(main_camera) for _ in range(1)]
 				shadow_cams[0].transform.parent.rotation_deg[1] -= 60
 				#shadow_cams[1].transform.parent.rotation_deg[1] += 42
 				shadow_cams_cycle = [main_camera]
 				shadow_dens_scale = 4.
-			
+
 			if clip_cams:
 				AABB_corners_WS = []
 				AABB_corners_WS_cycle = []
 				GRID_corners_WS_cycle = []
 				for state in sequence:
 					dens_transform = state.get_density_transform()
-					dens_hull = state.density.hull #state.hull if hasattr(state, "hull") else 
+					dens_hull = state.density.hull #state.hull if hasattr(state, "hull") else
 					if dens_hull is None:
 						continue
 					corners_OS = hull_AABB_OS(tf.squeeze(dens_hull, (0,-1)))
 					AABB_corners_WS += dens_transform.transform_AABB(*corners_OS, True)
-					
+
 					dens_shape = dens_transform.grid_shape
 					grid_OS = (np.asarray([0,0,0], dtype=np.float32), np.asarray(dens_shape.xyz, dtype=np.float32))
 					cycle_transform = dens_transform.copy_no_data()
@@ -781,30 +781,30 @@ if __name__=='__main__':
 						cycle_transform.rotation_deg[1] += i * 360/cycle_steps
 						AABB_corners_WS_cycle.extend(cycle_transform.transform_AABB(*corners_OS, True))
 						GRID_corners_WS_cycle.extend(cycle_transform.transform_AABB(*grid_OS, True))
-					
+
 					del dens_hull
 				if AABB_corners_WS:
 					seq_cams = [cam.copy_clipped_to_world_coords(AABB_corners_WS)[0] for cam in cameras]
 				else:
 					seq_cams = cameras
-				
+
 				if cycle and AABB_corners_WS_cycle:
 					cycle_cams = [cam.copy_clipped_to_world_coords(AABB_corners_WS_cycle)[0] for cam in cycle_cams]
-				
+
 				if render_shadow and GRID_corners_WS_cycle:
 					shadow_cams = [cam.copy_clipped_to_world_coords(GRID_corners_WS_cycle)[0] for cam in shadow_cams]
 					if cycle:
 						shadow_cams_cycle = [cam.copy_clipped_to_world_coords(GRID_corners_WS_cycle)[0] for cam in shadow_cams_cycle]
-				
+
 				split_cams = True
 			else:
 				seq_cams = cameras
 				split_cams = False
-			
+
 			i=0
 			if args.console:
 				substeps = 0
-				if render_density: 
+				if render_density:
 					substeps += 3 if render_cycle else 1
 					#if render_shadow: substeps += 1
 					if sF_cam: substeps += 1
@@ -816,7 +816,7 @@ if __name__=='__main__':
 					nonlocal substep
 					cycle_pbar.update(i*substeps + substep, desc="Frame {:03d} ({:03d}/{:03d}): {:30}".format(frame, i+1, len(sequence), desc))
 					substep +=1
-			
+
 			for state in sequence:
 				if render_density:
 					log.debug("Render density frame %d (%d)", state.frame, i)
@@ -887,7 +887,7 @@ if __name__=='__main__':
 							renderer.write_images([imgs_bkg], ['train_bkg_cam{}'], base_path=state.data_path, use_batch_id=True, format='PNG')
 							renderer.write_images([tf.abs(imgs_bkg - state.targets_raw)], ['train_err_cam{}'], base_path=state.data_path, use_batch_id=True, format='EXR')
 							renderer.write_images([tf.abs(imgs - state.targets_raw)], ['train_err_bkg_cam{}'], base_path=state.data_path, use_batch_id=True, format='PNG')
-				
+
 				if render_velocity:
 					vel_transform = state.get_velocity_transform()
 					vel_scale = vel_transform.cell_size_world().value #world_scale(state.velocity.centered_shape, width=1.)
@@ -905,7 +905,7 @@ if __name__=='__main__':
 						#render_cycle(vel_transform, [main_camera], [tf.maximum(vel_centered, 0)], vel_renderer, state.data_path, steps=cycle_steps, steps_per_cycle=cycle_steps, name_pre='velP', img_stats=False)
 						render_cycle(vel_transform, [main_camera], [tf.abs(vel_centered)], vel_renderer, state.data_path, steps=cycle_steps, steps_per_cycle=cycle_steps, name_pre='velA', img_stats=False, format='PNG')
 						#render_cycle(vel_transform, [main_camera], [tf.maximum(-vel_centered, 0)], vel_renderer, state.data_path, steps=cycle_steps, steps_per_cycle=cycle_steps, name_pre='velN')
-						
+
 					#	vel_mag = state.velocity.magnitude()
 					#	max_mag = tf.reduce_max(vel_mag)
 					#	vel_mag_grads = [(0.0, tf.constant([0,0,0], dtype=tf.float32)),
@@ -916,7 +916,7 @@ if __name__=='__main__':
 						if args.console: update_pbar(state.frame, "Velocity magnitude, cycle") #progress_bar(i*7+6,len(sequence)*7, "Frame {:03d} ({:03d}/{:03d}): {:30}".format(state.frame, i+1,len(sequence), "Velocity magnitude, cycle"), length=30)
 					#	render_cycle(vel_transform, [main_camera], [tf.concat([vel_mag]*3, axis=-1)], max_renderer, state.data_path, steps=cycle_steps, steps_per_cycle=cycle_steps, name_pre='velM', img_transfer=vel_mag_grads, img_stats=False, format="PNG")
 					#	del vel_mag
-						
+
 						vel_div = state.velocity.divergence()
 						vel_div = tf.concat((tf.maximum(vel_div, 0), tf.abs(vel_div), tf.maximum(-vel_div, 0)), axis=-1)
 						render_cycle(vel_transform, [main_camera], [vel_div], vel_renderer, state.data_path, steps=cycle_steps, steps_per_cycle=cycle_steps, name_pre='velDiv', img_stats=False, img_normalize=True, format="PNG")
@@ -929,14 +929,14 @@ if __name__=='__main__':
 						vel_slices_x = (tf.transpose(_, (1,0,2)) for _ in vel_slices_x)
 						vel_slices_x = list(tf.concat((tf.abs(_), tf.maximum(_,0), tf.maximum(-_,0)), axis=-2) for _ in vel_slices_x)
 						vel_renderer.write_images([tf.stack(vel_slices_x, axis=0)], ['vel_slice_{:04d}'], base_path=os.path.join(state.data_path, "vel_zy"), use_batch_id=True, format='EXR')
-				
+
 				i +=1
 				substep = 0
 			if args.console:
 				cycle_pbar.update(cycle_pbar._max_steps, "Done")
 				cycle_pbar.close()
 				#progress_bar(i*7,len(sequence)*7, "Frame {:03d} ({:03d}/{:03d}): {:30}".format(state.frame, i,len(sequence), "Done"), length=30)
-	
+
 	stop_training = False
 	def handle_train_interrupt(sig, frame):
 		global stop_training
@@ -945,21 +945,21 @@ if __name__=='__main__':
 		else:
 			log.warning('Training interrupted, stopping...')
 		stop_training = True
-	
+
 	resource_device = setup.training.resource_device #'/cpu:0'
 	compute_device = '/gpu:0'
 	log.debug("resource device (volumes and images): %s", resource_device)
 	log.debug("compute device: %s", compute_device)
-	
+
 	def wrap_resize_images(images, size):
 		return tf_image_resize_mip(images, size, mip_bias=0.5, method=tf.image.ResizeMethod.BILINEAR)
 		#return tf.image.resize_bilinear(images, size)
-	
+
 	# rebuild the interpolation of the active cameras here to match the target interpolation
 	target_cameras = build_scalarFlow_cameras(setup, [scalarFlow_cam_ids[_] for _ in setup.data.density.target_cam_ids], interpolation_weights=view_interpolation_weights) #[scalarFlow_cameras[_] for _ in setup.data.density.target_cam_ids]
 	#log.debug("%d target cameras, %d cam calib ids.", len(target_cameras), len(scalarFlow_cam_ids))
 	target_cameras_base = [target_cameras[_] for _ in range(0, len(target_cameras), setup.training.density.view_interpolation.steps +1)]
-	
+
 	frames = list(range(setup.data.start, setup.data.stop, setup.data.step))
 	if args.fit:
 		log.info("Reconstructing sequence for frames %s", frames)
@@ -970,42 +970,42 @@ if __name__=='__main__':
 			faulthandler.enable(file=faultlog)
 			summary = tf.contrib.summary
 			summary_writer = summary.create_file_writer(setup.paths.log)
-			
-			
+
+
 			if True:
 				plot_schedule(setup.training.density.learning_rate, setup.training.iterations, os.path.join(setup.paths.config, 'dens_lr.png'), 'Density LR')
 				plot_schedule(setup.training.velocity.learning_rate, setup.training.iterations, os.path.join(setup.paths.config, 'vel_lr.png'), 'Velocity LR')
-				
+
 				plot_schedule(setup.training.density.warp_loss, setup.training.iterations, os.path.join(setup.paths.config, 'dens_warp_loss.png'), 'Density Warp Loss Scale')
 				plot_schedule(setup.training.velocity.density_warp_loss, setup.training.iterations, os.path.join(setup.paths.config, 'vel_dens_warp_loss.png'), 'Velocity Density Warp Loss Scale')
 				plot_schedule(setup.training.velocity.velocity_warp_loss, setup.training.iterations, os.path.join(setup.paths.config, 'vel_vel_warp_loss.png'), 'Velocity Velocity Warp Loss Scale')
 				plot_schedule(setup.training.velocity.divergence_loss, setup.training.iterations, os.path.join(setup.paths.config, 'vel_div_loss.png'), 'Velocity Divergence Loss Scale')
-				
+
 				labels = ['Dens warp', 'Vel dens-warp', 'Vel vel-warp']#, 'Vel div']
 				schedules = [setup.training.density.warp_loss, setup.training.velocity.density_warp_loss, setup.training.velocity.velocity_warp_loss]#, setup.training.velocity.divergence_loss]
 				plot_schedules(schedules, setup.training.iterations, os.path.join(setup.paths.config, 'warp_loss_cmp.png'), labels=labels, title='Warp Loss Comparison')
-				
+
 				if setup.training.discriminator.active:
 					plot_schedule(setup.training.discriminator.learning_rate, setup.training.iterations, os.path.join(setup.paths.config, 'disc_lr.png'), 'Discriminator LR')
 					#plot_schedule(setup.training.discriminator.loss_scale, setup.training.iterations, os.path.join(setup.paths.config, 'disc_loss_scale.png'), 'Discriminator Loss Scale')
-			
+
 			frustum_half = 0.75
 			dist = 4.
 			log.debug("Setup validation")
 			val_cameras = [
 				Camera(GridTransform(cam_resolution, translation=[0,0,0.8], parent=Transform(rotation_deg=[-30,0,0], parent=Transform(translation=scalarFlow_cam_focus, rotation_deg=[0,-85,0]))), nearFar=[0.3,1.3], fov=40, aspect=aspect, static=sim_transform if setup.rendering.allow_static_cameras else None),
 			]
-			
-			
+
+
 			if len(frames)<1:
 				log.error("Not enough frames for sequence reconstruction: %s", frames)
 				sys.exit(1)
 			if len(frames)==1:
 				log.warning("Single frame reconstruction can not provide meaningfull velocity.")
-			
-					
+
+
 			log.info("--- Pre-setup ---")
-			
+
 			if setup.data.hull=='ALL':
 				#setup.data.hull=[]
 				hull_cameras = scalarFlow_cameras
@@ -1019,7 +1019,7 @@ if __name__=='__main__':
 				hull_cameras = target_cameras_base
 			elif isinstance(setup.data.hull, (list, tuple)):
 				hull_cameras = [scalarFlow_cameras[_] for _ in setup.data.hull]
-					
+
 			# TomoFluid: interpolated targets have less weight, based on the angle to a 'real' target
 			def get_target_weights(cameras, real_cameras, focus, mode="COS", **kwargs):
 				focus = Float3(focus)
@@ -1032,7 +1032,7 @@ if __name__=='__main__':
 						dff = (Float3(cam.transform.transform(Float4(0,0,0,1)))-focus).normalized
 						angle = np.minimum(np.arccos(np.dot(dir_from_focus, dff)), angle)
 					angles.append(angle)
-				
+
 				if mode=="COS":
 					weights = [np.cos(_*2)*0.5+0.5 for _ in angles]
 			#	elif mode=="POW":
@@ -1047,7 +1047,7 @@ if __name__=='__main__':
 					raise ValueError("Unknown target weight mode %s"%mode)
 				return weights
 			view_interpolation_target_weights = get_target_weights(target_cameras, target_cameras_base, cam_setup.focus, mode="EXP") if setup.training.density.view_interpolation.steps>0 else None
-			
+
 			def frame_loadTargets(frame, sim_transform):
 				'''
 				load or render targets
@@ -1066,7 +1066,7 @@ if __name__=='__main__':
 					#	targets_raw = tf.nn.avg_pool(targets_raw, (1,train_res_down, train_res_down, 1), (1,train_res_down, train_res_down, 1), 'VALID')
 						bkgs = tf.nn.avg_pool(bkgs, (1,train_res_down, train_res_down, 1), (1,train_res_down, train_res_down, 1), 'VALID')
 				#		renderer.write_images([targets_raw], ['target_raw_cam{}'], base_path=image_path, use_batch_id=True)
-					
+
 					offset=setup.data.scalarFlow_frame_offset #-11
 					if setup.data.density.target_type=='SYNTHETIC':
 						log.info('Rendering scalar Flow reconstruction (sim %d, frame %d) as optimization target.', setup.data.simulation, frame)
@@ -1081,7 +1081,7 @@ if __name__=='__main__':
 						del tmp_transform
 						targets, target_densities = tf.split(targets, [color_channel,1], axis=-1)
 						t = tf.exp(-target_densities)
-						
+
 						targets_monochrome = tf.reduce_mean(targets*synth_target_renderer.luma, axis=-1, keepdims=True)
 						targets_raw = targets + t*bkgs
 						del t
@@ -1093,7 +1093,7 @@ if __name__=='__main__':
 						targets_raw = targets + bkgs
 					else:
 						raise ValueError("Unknown target_type '%s'"%setup.data.density.target_type)
-					
+
 					targets_for_hull = targets_monochrome
 				else:
 					targets_raw, bkgs = load_targets(setup.data.density.target, simulations=[setup.data.simulation], frames=[frame], bkg_subtract=False, flip_y=setup.data.density.target_flip_y)
@@ -1110,26 +1110,26 @@ if __name__=='__main__':
 					targets_raw = targets_raw*tight_image_hulls + bkgs*(1-tight_image_hulls)
 					targets = targets_bsub*tight_image_hulls
 					targets = targets*setup.data.density.target_scale
-				
+
 				aux = munch.Munch()
-				
+
 				#target selection and interpolation
 				targets_raw = [targets_raw[_] for _ in setup.data.density.target_cam_ids]
 				targets = [targets[_] for _ in setup.data.density.target_cam_ids]
 				bkgs = [bkgs[_] for _ in setup.data.density.target_cam_ids]
-				
+
 				if view_interpolation_weights:
 					targets_raw = interpolate_images(targets_raw, view_interpolation_weights)
 					targets = interpolate_images(targets, view_interpolation_weights)
 					bkgs = interpolate_images(bkgs, view_interpolation_weights)
-				
-				
+
+
 				if not len(target_cameras) == len(targets):
 					raise RuntimeError("Number of targets does not match number of cameras.")
 				targets_raw = tf.stack(targets_raw)
 				targets = tf.stack(targets)
 				bkgs = tf.stack(bkgs)
-				
+
 				# hull setup
 				if setup.data.hull=='ALL':
 					interpolate_hulls = True
@@ -1151,71 +1151,71 @@ if __name__=='__main__':
 					interpolate_hulls = True
 					targets_for_hull = [targets_for_hull[_] for _ in setup.data.hull]
 					#hull_cameras = [scalarFlow_cameras[_] for _ in setup.data.hull]
-				
+
 				if view_interpolation_weights and interpolate_hulls:
 					targets_for_hull = interpolate_images(targets_for_hull, view_interpolation_weights)
-				
+
 				if not len(hull_cameras) == len(targets_for_hull):
 					raise RuntimeError("Number of hull targets does not match number of hull cameras.")
 				targets_for_hull = tf.stack(targets_for_hull)
-				
+
 				with tf.device(resource_device):
 					aux.targets_raw = tf.identity(targets_raw)
 					aux.targets = tf.identity(targets)
 					aux.bkgs = tf.identity(bkgs)
 					aux.targets_for_hull = tf.identity(targets_for_hull)
-				
+
 				return aux
-			
+
 			aux_sequence = {}
 		#	if setup.data.clip_grid:
 			log.info("Load targets")
 			for frame in frames:
 				aux_sequence[frame] = frame_loadTargets(frame, sim_transform)
-			
-			
+
+
 			### setup hull construction ###
 			log.info("setup hull construction")
-			
+
 			#num_hull_cam_rot = 0
 			if setup.data.hull.endswith('ROT'):
 				rotations = [45,90,270,315]
 				log.info("Construct hull from %s degree rotated copies with mirroring of %d targets.", rotations, len(target_cameras))
-				
+
 				def get_target_rotation_pivot(aux_sequence, frames, sim_transform):
 					n_views = len(hull_cameras)
 					# combine targets of all frames per view
 					combined_targets = [tf.reduce_sum([aux_sequence[f].targets_for_hull[v] for f in frames], axis=[0,-1]) for v in range(n_views)] # NVHWC -> VHW
-					
+
 					def get_CoM(img):
 						# img: HW
 						height, width = shape_list(img)
-						
+
 						sample_mean_y = tf.reduce_mean(img, axis=-2) #W
 						coords_x = tf.range(0, width, 1,dtype=tf.float32) #W
 						center_x = tf.reduce_sum(coords_x*sample_mean_y, axis=-1)/tf.reduce_sum(sample_mean_y, axis=-1) #1
-						
+
 						sample_mean_x = tf.reduce_mean(img, axis=-1) #H
 						coords_y = tf.range(0, height, 1,dtype=tf.float32) #H
 						center_y = tf.reduce_sum(coords_y*sample_mean_x, axis=-1)/tf.reduce_sum(sample_mean_x, axis=-1) #1
 						return Float2(center_x.numpy().tolist(), center_y.numpy().tolist())
-					
+
 					def cam_coords_to_ray(pix, cam):
 						pos_world, dir_world = cam.screenPIX_to_worldRay(pix)
 						#log.debug("re-projected ray: %s, %s", cam.project_world_to_screenPIX(pos_world), cam.project_world_to_screenPIX(pos_world + dir_world))
 						return pos_world, dir_world
-					
+
 					def ray_plane_intersection(r_pos, r_dir, p_pos, p_n):
 						# https://en.wikipedia.org/wiki/Line%E2%80%93plane_intersection
 						d = np.dot(p_pos - r_pos, p_n) / np.dot(r_dir, p_n)
 						pos = (r_pos + r_dir * d)
 						#log.debug("ray-plane %s %s %s %s: %s, %f", r_pos, r_dir, p_pos, p_n, pos, d)
 						return pos
-						
-					
+
+
 					pix_pivots = [get_CoM(_) for _ in combined_targets]
 					#log.debug("Screen CoM coords: %s", pix_pivots)
-					
+
 					if n_views==1:
 						# intersect CoM ray with central depth
 						cam = hull_cameras[0]
@@ -1229,13 +1229,13 @@ if __name__=='__main__':
 					else:
 						# find point closes to all CoM rays
 						raise NotImplementedError("Pivot calculation for rotational hull with more than 1 base view has not been implemented.")
-					
+
 					return pivot.value
-				
+
 				rotation_pivot = get_target_rotation_pivot(aux_sequence, frames, sim_transform)
 				log.info("pivot for ROT hull at %s. volume center: %s, SF-focus: %s", rotation_pivot, sim_center, scalarFlow_cam_focus)
 				#rotation_pivot = scalarFlow_cam_focus
-				
+
 				def build_visual_hull(transform, targets, cameras, image_blur=0.0, grid_blur=0.0, threshold=0.5, soft_blur=0.0):
 					num_views = len(cameras)
 					tmp_hull_cameras = list(cameras)
@@ -1258,27 +1258,27 @@ if __name__=='__main__':
 							target_mirrored = tf_shift(target_mirrored, shift=shift_x, axis=-2)
 							tmp_hull_cameras.append(cam)
 							tmp_hull_targets.append(tf.maximum(target, target_mirrored))
-					
-					
+
+
 					hull, image_hulls = renderer.visual_hull(transform, tmp_hull_targets, tmp_hull_cameras, \
 						image_blur=image_blur, grid_blur=grid_blur, threshold=threshold, soft_blur=soft_blur)
 					return hull, image_hulls #[:num_views:len(rotations)]
 			else:
 		#		hull_cameras = [scalarFlow_cameras[_] for _ in setup.data.hull] if setup.data.hull else scalarFlow_cameras
 				build_visual_hull = renderer.visual_hull
-			
+
 			def frame_hullSetupPre(aux, frame, sim_transform):
-				
+
 				#log.info("hull targets shape: %s, cameras: %d", aux.targets_for_hull.get_shape().as_list(), len(hull_cameras))
 				hull, image_hulls = build_visual_hull(sim_transform, aux.targets_for_hull, hull_cameras, setup.data.density.hull_image_blur_std, \
 					setup.data.density.hull_volume_blur_std, setup.data.density.hull_threshold, setup.data.density.hull_smooth_blur_std)
 				_, tight_image_hulls = build_visual_hull(sim_transform, aux.targets_for_hull, hull_cameras, 0.0, \
 					0.0, setup.data.density.hull_threshold, 0.0)
-				
+
 				with tf.device(resource_device):
 					aux.image_hulls = tf.identity(image_hulls)
 					aux.image_hulls_tight = tf.identity(tight_image_hulls)
-				
+
 				#log.info("hull shape: %s", hull.get_shape().as_list())
 				# setup bounding-box
 				hull_bounds = hull_AABB_OS(tf.squeeze(hull, (0,-1)))
@@ -1296,23 +1296,23 @@ if __name__=='__main__':
 				log.info("F%04d Visual hull: %.03f%% (%d cells); AABB: %.03f%% (%d cells), %s at %s",frame, 100*visHull_size/volume_size, int(visHull_size), 100*(BB_size.x*BB_size.y*BB_size.z)/volume_size, \
 					(BB_size.x*BB_size.y*BB_size.z), BB_size._value[::-1], BB_start._value[::-1])
 				aux.hull_bound = [BB_start, BB_end]
-				
+
 				return aux
-			
-			
-			
-			
+
+
+
+
 			log.info("construct visual hulls")
-			
+
 			max_hull_start = density_size.copy()
 			max_hull_end = Int3(0)
 			for frame in frames:
 				frame_hullSetupPre(aux_sequence[frame], frame, sim_transform)
 				max_hull_start = Int3(np.minimum(aux_sequence[frame].hull_bound[0], max_hull_start))
 				max_hull_end = Int3(np.maximum(aux_sequence[frame].hull_bound[1], max_hull_end))
-			
-			
-			
+
+
+
 			if setup.data.clip_grid:
 				min_mult = 1 #2**setup.rendering.mip.level
 				max_hull_pad = Int3(setup.data.clip_grid_pad)
@@ -1326,18 +1326,18 @@ if __name__=='__main__':
 				max_hull_size = new_hull_size
 				log.info("Clip grid to maximum hull BB: %.03f%% (%d cells, pad %s), %s at %s", 100*(max_hull_size.prod)/density_size.prod, \
 					(max_hull_size.prod), max_hull_pad.as_shape, max_hull_size.as_shape, max_hull_start.as_shape)
-				
-				
+
+
 				max_hull_scale = (Float4(sim_transform.transform(Float4(max_hull_end, 1))) - Float4(sim_transform.transform(Float4(max_hull_start, 1)))).xyz
 				max_hull_center_WS = Float4(sim_transform.transform(Float4(Float3(max_hull_start) + Float3(max_hull_size)/2.0, 1))).xyz
-				
+
 				if setup.data.crop_grid:
 					log.info("Crop grid size to preserve spacial resolution")
 					density_size = max_hull_size
 				log.info("Original grid transform: %s", sim_transform)
 				sim_transform = GridTransform(density_size.as_shape, translation=max_hull_center_WS.value, scale=max_hull_scale.value, center=True, normalize='ALL')
 				log.info("New grid transform: %s", sim_transform)
-			
+
 			#prep for loading cropped grid sequence: shape and transform
 			if run_index.can_get_run_id(setup.data.density.initial_value):
 				try:
@@ -1352,7 +1352,7 @@ if __name__=='__main__':
 					log.info("Loaded transform '%s' from run %s", t, load_entry.runid)
 					density_size = t.grid_shape.spatial_vector
 					sim_transform = t
-				
+
 			curr_cam_res = current_grow_shape(train_cam_resolution, 0, setup.training.density.grow.factor, setup.training.density.grow.intervals)
 			base_shape = density_size.as_shape #copy.copy(density_size)
 		#	print(density_size, base_shape)
@@ -1368,10 +1368,10 @@ if __name__=='__main__':
 			sim_transform.grid_size = curr_dens_shape
 			log.info("Inital setup for sequence reconstruction:\n\tbase shape %s,\n\tinitial density shape %s,\n\tinitial render shape %s,\n\tpre-opt velocity shape %s,\n\tinitial velocity shape %s", \
 				base_shape, main_opt_start_dens_shape, curr_cam_res, pre_opt_start_vel_shape, main_opt_start_vel_shape)
-			
+
 			vel_bounds = None if setup.data.velocity.boundary.upper()=='CLAMP' else \
 				Zeroset(-1, shape=density_size, outer_bounds="OPEN" if setup.data.velocity.boundary.upper()=='CLAMP' else 'CLOSED', as_var=False, device=resource_device)
-			
+
 			def frame_hullSetup(aux, frame):
 				#re-generate hulls for potentially cropped base resolution
 				transform = sim_transform.copy_no_data()
@@ -1380,10 +1380,10 @@ if __name__=='__main__':
 					setup.data.density.hull_volume_blur_std, setup.data.density.hull_threshold, setup.data.density.hull_smooth_blur_std)
 				tight_hull, _ = build_visual_hull(transform, aux.targets_for_hull, hull_cameras, 0.0, \
 					0.0, setup.data.density.hull_threshold, 0.0)
-				
+
 				aux.hull = hull
 				aux.hull_tight = tight_hull
-				
+
 				# setup bounding-box
 				hull_bounds = hull_AABB_OS(tf.squeeze(hull, (0,-1)))
 				BB_start = Vector3(hull_bounds[0])
@@ -1400,7 +1400,7 @@ if __name__=='__main__':
 			for frame in frames:
 				frame_hullSetup(aux_sequence[frame], frame)
 			del frame_hullSetup
-			
+
 			log.info("--- Sequence setup ---")
 			def frame_velSetup(aux_sequence, frame, first_frame, vel_init=None):
 				#setup velocity
@@ -1410,9 +1410,9 @@ if __name__=='__main__':
 					vel_var_name = "velocity_f{:06d}_g000".format(frame)
 				elif setup.training.velocity.grow.intervals:
 					vel_var_name = "velocity_f{:06d}_g000".format(frame)
-				
+
 				vel_shape = (pre_opt_first_start_vel_shape if first_frame else pre_opt_start_vel_shape) if setup.training.velocity.pre_optimization else main_opt_start_vel_shape
-				
+
 				if not setup.data.velocity.initial_value.upper().startswith('RAND'):
 					if first_frame or not setup.training.velocity.pre_optimization:
 						velocity = load_velocity(setup.data.velocity.initial_value, {'sim':setup.data.simulation,'frame':frame}, boundary=vel_bounds, scale_renderer=scale_renderer, warp_renderer=warp_renderer, device=resource_device, var_name=vel_var_name)
@@ -1430,7 +1430,7 @@ if __name__=='__main__':
 					velocity = VelocityGrid(vel_shape, setup.data.velocity.init_std * setup.data.step, boundary=vel_bounds, scale_renderer=scale_renderer, warp_renderer=warp_renderer, device=resource_device, var_name=vel_var_name)
 					if vel_init is not None:
 						velocity.assign(vel_init.x, vel_init.y, vel_init.z)
-				
+
 				if setup.data.velocity.init_mask != 'NONE':
 					if setup.data.velocity.init_mask == 'HULL':
 						vel_mask = aux_sequence[frame].hull
@@ -1455,7 +1455,7 @@ if __name__=='__main__':
 					hull_z = scale_renderer.resample_grid3D_aligned(vel_mask, velocity.z_shape, align_z='STAGGER_OUTPUT')
 					velocity.assign(x=velocity.x*hull_x, y=velocity.y*hull_y, z=velocity.z*hull_z)
 				return velocity
-			
+
 			def frame_densSetup(aux_sequence, frame, first_frame):
 				inflow_init = None
 				inflow_mask = None
@@ -1471,7 +1471,7 @@ if __name__=='__main__':
 						inflow_mask = scale_renderer.resample_grid3D_aligned(base_inflow_mask, inflow_shape)
 					else:
 						log.error("Failed to build inflow.")
-				
+
 				#setup density with start scale
 				dens_hull = scale_renderer.resample_grid3D_aligned(aux_sequence[frame].hull, curr_dens_shape) # if setup.training.density.use_hull else None
 				#with tf.device(resource_device):
@@ -1517,7 +1517,7 @@ if __name__=='__main__':
 					else: #not first and pre-opt. will be overwritten, put dummy data as file might not exist
 						density = DensityGrid(curr_dens_shape, setup.data.density.scale, scale_renderer=scale_renderer, hull=dens_hull, inflow=inflow_init, inflow_offset=inflow_offset, inflow_mask=inflow_mask, \
 							device=resource_device, var_name=dens_var_name, restrict_to_hull=setup.training.density.use_hull)
-				
+
 				with tf.device(resource_device):
 					density.base_hull = tf.identity(aux_sequence[frame].hull) #if setup.training.density.use_hull else None
 					if inflow_mask is not None: #setup.data.density.inflow.active:
@@ -1525,17 +1525,17 @@ if __name__=='__main__':
 						density.base_inflow_shape = base_inflow_shape
 						density.base_inflow_offset = base_inflow_offset
 				return density
-			
+
 			def frame_setup(aux_sequence, frame, first_frame, prev=None, vel_init=None):
 				log.info("--- Setup frame %d ---", frame)
 				velocity = frame_velSetup(aux_sequence, frame, first_frame, vel_init)
 				density = frame_densSetup(aux_sequence, frame, first_frame)
-				
+
 				state = State(density, velocity, frame=frame, prev=prev, transform=sim_transform.copy_no_data())
 				state.data_path = os.path.join(setup.paths.data, 'frame_{:06d}'.format(frame))
 				os.makedirs(state.data_path, exist_ok=True)
 				#setup targets
-				
+
 				with tf.device(resource_device):
 					state.base_targets_raw = tf.identity(aux_sequence[frame].targets_raw)
 					state.base_targets = tf.identity(aux_sequence[frame].targets)
@@ -1549,7 +1549,7 @@ if __name__=='__main__':
 					state.bkgs = tf.identity(bkgs)
 					state.hull = tf.identity(aux_sequence[frame].hull_tight)
 				return state
-			
+
 			def sequence_setup(aux_sequence):
 				sequence = []
 				prev = None
@@ -1561,15 +1561,15 @@ if __name__=='__main__':
 						raise NotImplementedError("Camera frustum cropping is currently not working.")
 					AABB_corners_WS = sim_transform.transform_AABB(*hull_AABB_OS(tf.squeeze(state.density.hull, (0,-1))), True) if setup.rendering.target_cameras.crop_frustum else None
 					state.target_cameras = setup_target_cameras(target_cameras, curr_cam_res, AABB_corners_WS, setup.rendering.target_cameras.crop_frustum_pad, jitter=setup.training.density.camera_jitter)
-					
-					
+
+
 					render_hull = aux_sequence[frame].hull*4
 					if hasattr(state.density, "base_inflow_mask"): #setup.data.density.inflow.active:
 						render_hull = render_hull + tf.pad(state.density.base_inflow_mask * 0.1, \
 							[[0,0]]+[[state.density.base_inflow_offset[_],base_shape[_]-state.density.base_inflow_offset[_]-state.density.base_inflow_shape[_]] for _ in range(3)]+[[0,0]])
 					hull_transform = sim_transform.copy_new_data(render_hull)
 					render_cycle(hull_transform, [main_camera], lights, renderer, state.data_path, name_pre='hull_inflow', format='PNG')
-					
+
 					log.debug('Write target images')
 					renderer.write_images([state.base_targets_raw], ['target_raw_base_cam{}'], base_path=state.data_path, use_batch_id=True)
 					renderer.write_images([state.base_targets], ['target_base_cam{}'], base_path=state.data_path, use_batch_id=True)
@@ -1581,8 +1581,8 @@ if __name__=='__main__':
 					renderer.write_images([aux_sequence[frame].image_hulls_tight], ['hull_tight_base_cam{}'], base_path=state.data_path, use_batch_id=True, format='PNG')
 					np.savez_compressed(os.path.join(state.data_path, 'volume_hull.npz'), aux_sequence[frame].hull)
 					np.savez_compressed(os.path.join(state.data_path, 'volume_hull_tight.npz'), aux_sequence[frame].hull_tight)
-					
-					
+
+
 					# random velocity initialization, but same for each frame
 					if setup.data.velocity.initial_value.upper()=='RAND_CONST':
 						vel_init = state.velocity
@@ -1590,29 +1590,29 @@ if __name__=='__main__':
 					sequence.append(state)
 					first_frame = False
 				return sequence
-			
+
 			sequence = sequence_setup(aux_sequence)
 			del sequence_setup
 			del frame_setup
 			del frame_densSetup
 			del frame_velSetup
 			del aux_sequence
-			
+
 			for i in range(len(sequence)-1):
 				sequence[i].next = sequence[i+1]
 			sequence = Sequence(sequence)
-			
+
 			with tf.device(resource_device):
 				if setup.training.optimize_buoyancy:
 					buoyancy = tf.Variable(initial_value=setup.data.initial_buoyancy, dtype=tf.float32, name='buoyancy', trainable=True)
 				else:
 					buoyancy = tf.constant(setup.data.initial_buoyancy, dtype=tf.float32)
-			
+
 			if setup.training.velocity.pre_opt.first.iterations>0 and setup.training.velocity.pre_optimization: #and setup.training.velocity.pre_optimization ?
 				curr_vel_shape = pre_opt_start_vel_shape
 			else:
 				curr_vel_shape = main_opt_start_vel_shape
-				
+
 			s = "Sequence setup:"
 			i=0
 			for state in sequence:
@@ -1621,7 +1621,7 @@ if __name__=='__main__':
 				s += "\n{:4d}: frame {:06d}: p={:06d},  n={:06d}".format(i, state.frame, p, n)
 				i +=1
 			log.info(s)
-			
+
 			log.debug('Initialize variables (density %f and light intensity %f)', setup.data.density.scale, lights[0].i)
 			light_var_list = []
 			if setup.training.light.optimize:
@@ -1630,7 +1630,7 @@ if __name__=='__main__':
 				var_ambient_intensity = tf.get_variable(name='ambient_intensity', initializer=lights[1].i, constraint=lambda var: tf.clip_by_value(var, setup.training.light.min, setup.training.light.max), dtype=tf.float32, trainable=True)#tf.Variable(initial_value=lights[1].i, dtype=tf.float32, name='ambient_intensity', trainable=True)
 				lights[1].i=var_ambient_intensity
 				light_var_list = [var_intensity, var_ambient_intensity]
-			
+
 			train_disc = False
 			disc_dump_samples = setup.debug.disc_dump_samples
 			if setup.training.discriminator.active:
@@ -1651,7 +1651,7 @@ if __name__=='__main__':
 							path_preproc=setup.data.discriminator.target_preproc if setup.data.discriminator.target_type else None, \
 							temporal_input_steps=disc_input_steps \
 							).batch(setup.training.discriminator.num_real).prefetch(12)
-					
+
 					# roll datatypes into channels and expand monochrome to RGB
 					if setup.training.discriminator.temporal_input.active:
 						if setup.training.discriminator.conditional_hull:
@@ -1664,11 +1664,11 @@ if __name__=='__main__':
 						else:
 							disc_dataset = disc_dataset.map(lambda y: tf.concat([y]*color_channel, axis=-1))
 					#.map(lambda x,y,z: tf.concat([y]*3, axis=-1)*setup.data.density.target_scale)
-					
+
 					disc_real_res = tf.Variable(initial_value=disc_cam_resolution[1:], name='disc_real_res', dtype=tf.int32, trainable=False)
 					if setup.data.discriminator.scale_real_to_cam:
 						disc_dataset = disc_dataset.map(lambda i: tf.py_func(lambda j: wrap_resize_images(j, disc_real_res.numpy()), [i], tf.float32)) #tf.image.resize_bilinear(s, disc_real_res))
-					
+
 					disc_real_data = disc_dataset.make_one_shot_iterator()
 					#train_disc = setup.training.discriminator.train
 				disc_in_channel = color_channel
@@ -1702,7 +1702,7 @@ if __name__=='__main__':
 				#disc_model(disc_targets, training=False)
 				disc_weights = disc_model.get_weights()
 				disc_model.summary(print_fn= lambda s: log.info(s))
-				
+
 				if np.any(np.less(disc_in_shape[:-1], disc_cam_resolution[1:])) and setup.training.discriminator.use_fc and (not setup.data.discriminator.scale_input_to_crop):
 					log.warning("Base fake sample camera resolution exeeds rigid discriminator input resolution. Use the patch discriminator or enable input scaling.")
 				curr_disc_cam_res = current_grow_shape(disc_cam_resolution, 0, setup.training.density.grow.factor, setup.training.density.grow.intervals)
@@ -1712,8 +1712,8 @@ if __name__=='__main__':
 						camera.jitter = camera.depth_step
 				disc_real_res.assign(curr_disc_cam_res[1:])
 			#END if setup.training.discriminator.active
-			
-			
+
+
 			def scale_density(sequence, iteration, factor, intervals, base_shape, actions=[]):
 				global curr_dens_shape, curr_cam_res
 				dens_shape = current_grow_shape(base_shape, iteration, factor, intervals)
@@ -1756,7 +1756,7 @@ if __name__=='__main__':
 								density.base_inflow_shape = state._density.base_inflow_shape
 								density.base_inflow_offset = state._density.base_inflow_offset
 							state._density = density
-							
+
 							AABB_corners_WS = dens_transform.transform_AABB(*hull_AABB_OS(tf.squeeze(state.density.hull, (0,-1))), True) if setup.rendering.target_cameras.crop_frustum else None
 							state.target_cameras = setup_target_cameras(target_cameras, curr_cam_res, AABB_corners_WS,setup.rendering.target_cameras.crop_frustum_pad, jitter=setup.training.density.camera_jitter)
 						curr_dens_shape = dens_shape
@@ -1794,7 +1794,7 @@ if __name__=='__main__':
 				else:
 					return False
 				#END if rescale density
-			
+
 			def scale_velocity(sequence, iteration, factor, scale_magnitude, intervals, base_shape):
 				global curr_vel_shape, z
 				vel_shape = current_grow_shape(base_shape, iteration, factor, intervals)
@@ -1824,8 +1824,8 @@ if __name__=='__main__':
 				else:
 					return False
 				#END if rescale velocity
-			
-			
+
+
 			def render_sequence_val(sequence, vel_pad, it):
 				log.debug("Render validation images for sequence, iteration %d", it)
 				with profiler.sample('render validation'):
@@ -1835,7 +1835,7 @@ if __name__=='__main__':
 						dens_transform = state.get_density_transform()
 						val_imgs = renderer.render_density(dens_transform, lights, val_cameras)
 						renderer.write_images([tf.concat(val_imgs, axis=0)], ['val_img_cam{}_{:04d}'], base_path=state.data_path, use_batch_id=True, frame_id=it, format='PNG')
-						
+
 						vel_transform = state.get_velocity_transform()
 						vel_scale = vel_transform.cell_size_world().value
 						log.debug("Render velocity validation frame %d with scale %s", state.frame, vel_scale)
@@ -1847,10 +1847,10 @@ if __name__=='__main__':
 					#	vel_renderer.write_images([tf.concat(val_imgs, axis=0)], ['val_velP_cam{}_{:04d}'], base_path=state.data_path, use_batch_id=True, frame_id=it, format='PNG')
 					#	val_imgs = vel_renderer.render_density(vel_transform, [tf.maximum(-vel_centered, 0)], val_cameras)
 					#	vel_renderer.write_images([tf.concat(val_imgs, axis=0)], ['val_velN_cam{}_{:04d}'], base_path=state.data_path, use_batch_id=True, frame_id=it, format='PNG')
-			
+
 			#log.debug("render initial state")
-			
-			
+
+
 			# print growing stats
 			def log_growth(tar_shape, intervals, factor, max_iter, name):
 				s = "Growing {}: {:d} steps with factor {:f}".format(name, len(intervals)+1, factor)
@@ -1868,33 +1868,33 @@ if __name__=='__main__':
 				log_growth(base_shape, setup.training.density.grow.intervals, setup.training.density.grow.factor, setup.training.iterations, 'density')
 			if setup.training.velocity.grow.intervals:
 				log_growth(base_shape, setup.training.velocity.grow.intervals, setup.training.velocity.grow.factor, setup.training.iterations, 'velocity')
-			
+
 			loss_schedules = LossSchedules( \
-				density_target =		make_schedule(setup.training.density.preprocessed_target_loss), 
-				density_target_raw =	make_schedule(setup.training.density.raw_target_loss), 
-				density_target_depth_smoothness = make_schedule(setup.training.density.target_depth_smoothness_loss), 
-				density_negative =		make_schedule(setup.training.density.negative), 
-				density_hull =			make_schedule(setup.training.density.hull), 
-				density_smoothness =	make_schedule(setup.training.density.smoothness_loss), 
-				density_smoothness_2 =	make_schedule(setup.training.density.smoothness_loss_2), 
-				density_smoothness_temporal = make_schedule(setup.training.density.temporal_smoothness_loss), 
-				density_warp =			make_schedule(setup.training.density.warp_loss), 
-				density_disc =			make_schedule(setup.training.density.discriminator_loss), 
-				
-				velocity_warp_dens =	make_schedule(setup.training.velocity.density_warp_loss), 
-				velocity_warp_vel =		make_schedule(setup.training.velocity.velocity_warp_loss), 
-				velocity_divergence =	make_schedule(setup.training.velocity.divergence_loss), 
-				velocity_smoothness =	make_schedule(setup.training.velocity.smoothness_loss), 
-				velocity_cossim =		make_schedule(setup.training.velocity.cossim_loss), 
-				velocity_magnitude =	make_schedule(setup.training.velocity.magnitude_loss), 
-				
-				density_lr =			make_schedule(setup.training.density.learning_rate), 
-				light_lr =				make_schedule(setup.training.light.learning_rate), 
-				velocity_lr =			make_schedule(setup.training.velocity.learning_rate), 
-				discriminator_lr =		make_schedule(setup.training.discriminator.learning_rate), 
+				density_target =		make_schedule(setup.training.density.preprocessed_target_loss),
+				density_target_raw =	make_schedule(setup.training.density.raw_target_loss),
+				density_target_depth_smoothness = make_schedule(setup.training.density.target_depth_smoothness_loss),
+				density_negative =		make_schedule(setup.training.density.negative),
+				density_hull =			make_schedule(setup.training.density.hull),
+				density_smoothness =	make_schedule(setup.training.density.smoothness_loss),
+				density_smoothness_2 =	make_schedule(setup.training.density.smoothness_loss_2),
+				density_smoothness_temporal = make_schedule(setup.training.density.temporal_smoothness_loss),
+				density_warp =			make_schedule(setup.training.density.warp_loss),
+				density_disc =			make_schedule(setup.training.density.discriminator_loss),
+
+				velocity_warp_dens =	make_schedule(setup.training.velocity.density_warp_loss),
+				velocity_warp_vel =		make_schedule(setup.training.velocity.velocity_warp_loss),
+				velocity_divergence =	make_schedule(setup.training.velocity.divergence_loss),
+				velocity_smoothness =	make_schedule(setup.training.velocity.smoothness_loss),
+				velocity_cossim =		make_schedule(setup.training.velocity.cossim_loss),
+				velocity_magnitude =	make_schedule(setup.training.velocity.magnitude_loss),
+
+				density_lr =			make_schedule(setup.training.density.learning_rate),
+				light_lr =				make_schedule(setup.training.light.learning_rate),
+				velocity_lr =			make_schedule(setup.training.velocity.learning_rate),
+				discriminator_lr =		make_schedule(setup.training.discriminator.learning_rate),
 				discriminator_regularization = make_schedule(setup.training.discriminator.regularization) )
-			
-			
+
+
 			light_lr = tf.Variable(initial_value=scalar_schedule(setup.training.light.learning_rate, 0), dtype=tf.float32, name='light_lr', trainable=False)
 			light_optimizer = tf.train.AdamOptimizer(light_lr, beta1=setup.training.light.optim_beta)
 			dens_lr = tf.Variable(initial_value=scalar_schedule(setup.training.density.learning_rate, 0), dtype=tf.float32, name='density_lr', trainable=False)
@@ -1903,9 +1903,9 @@ if __name__=='__main__':
 			vel_optimizer = tf.train.AdamOptimizer(vel_lr, beta1=setup.training.velocity.optim_beta)
 			disc_lr = tf.Variable(initial_value=scalar_schedule(setup.training.discriminator.learning_rate, 0), dtype=tf.float32, name='discriminator_lr', trainable=False)
 			disc_optimizer = tf.train.AdamOptimizer(disc_lr, beta1=setup.training.discriminator.optim_beta)
-			
+
 			opt_ckpt = tf.train.Checkpoint(dens_optimizer=dens_optimizer, vel_optimizer=vel_optimizer, disc_optimizer=disc_optimizer)
-			
+
 			main_ctx = OptimizationContext(setup=setup, iteration=0, loss_schedules=loss_schedules, \
 				rendering_context=main_render_ctx, vel_scale=[1,1,1], warp_order=setup.training.velocity.warp_order, dt=1.0, buoyancy=buoyancy, \
 				dens_warp_clamp=setup.training.density.warp_clamp, vel_warp_clamp=setup.training.velocity.warp_clamp, \
@@ -1913,7 +1913,7 @@ if __name__=='__main__':
 				velocity_optimizer=vel_optimizer, velocity_lr=vel_lr, \
 				frame=None, tf_summary=summary, summary_interval=10, summary_pre=None, profiler=profiler,
 				light_var_list=light_var_list)
-			
+
 			#loss functions for losses
 			'''
 			"density/target":		self.l1_loss,
@@ -1923,7 +1923,7 @@ if __name__=='__main__':
 			"density/edge":			self.l2_loss,
 			"density/smooth":		self.l2_loss,
 			"density/warp":			self.l1_loss,
-			
+
 			"velocity/density_warp":	self.l1_loss,
 			"velocity/velocity_warp":	self.l1_loss,
 			"velocity/divergence":		self.l2_loss,
@@ -1938,12 +1938,12 @@ if __name__=='__main__':
 			main_ctx.set_loss_func("density/smooth", setup.training.density.error_functions.smoothness_loss_2)
 			main_ctx.set_loss_func("density/smooth-temp", setup.training.density.error_functions.temporal_smoothness_loss)
 			main_ctx.set_loss_func("density/warp", setup.training.density.error_functions.warp_loss)
-			
+
 			main_ctx.set_loss_func("velocity/density_warp", setup.training.velocity.error_functions.density_warp_loss)
 			main_ctx.set_loss_func("velocity/velocity_warp", setup.training.velocity.error_functions.velocity_warp_loss)
 			main_ctx.set_loss_func("velocity/divergence", setup.training.velocity.error_functions.divergence_loss)
 			main_ctx.set_loss_func("velocity/magnitude", setup.training.velocity.error_functions.magnitude_loss)
-			
+
 			#gradient warping:
 			main_ctx.update_first_dens_only =	make_schedule(setup.training.density.warp_gradients.update_first_only)
 			main_ctx.warp_dens_grads =			make_schedule(setup.training.density.warp_gradients.active)
@@ -1952,19 +1952,19 @@ if __name__=='__main__':
 			main_ctx.warp_vel_grads_decay =		make_schedule(setup.training.velocity.warp_gradients.decay)
 			main_ctx.custom_dens_grads_weight =	make_schedule(setup.training.density.warp_gradients.weight)
 			main_ctx.custom_vel_grads_weight =	make_schedule(setup.training.velocity.warp_gradients.weight)
-			
+
 			main_ctx.target_weights = view_interpolation_target_weights
 			log.info("Target weights: %s", view_interpolation_target_weights)
-			
+
 			sF_render_ctx = copy.copy(main_render_ctx)
 			sF_render_ctx.cameras = None #scalarFlow_cameras
 			opt_ctx = copy.copy(main_ctx)
 			opt_ctx.render_ctx = sF_render_ctx
-			
+
 			if setup.training.density.scale_render_grads_sharpness>0.0:
 				log.info("Scaling density render gradients with exisiting density distribution.")
 				opt_ctx.add_render_op('DENSITY', opt_ctx.RO_grid_dens_grad_scale(weight=1, sharpness=setup.training.density.scale_render_grads_sharpness, eps=1e-5))
-			
+
 			if setup.training.discriminator.active:
 				disc_render_ctx = copy.copy(main_render_ctx)
 				disc_render_ctx.cameras = disc_cameras
@@ -1989,15 +1989,15 @@ if __name__=='__main__':
 			else:
 				disc_ctx = DiscriminatorContext(opt_ctx, None, main_render_ctx, None, "SGAN", None, disc_lr)
 				disc_ctx.train = False
-			
+
 			dump_samples = False
 			val_out_step = setup.validation.output_interval
 			out_step = setup.training.summary_interval
 			loss_summary = []
-			
+
 			class StopTraining(Exception):
 				pass
-			
+
 			def check_loss_summary(loss_summaries, total_losses, it, gradients=None, grad_max=None):
 				# check losses and gradients for NaN/Inf
 				for f, f_item in loss_summaries.items():
@@ -2015,14 +2015,14 @@ if __name__=='__main__':
 								continue # gradients of gloabl scalars are higher
 							if np.any(np.greater(k_item, grad_max)):
 								raise ValueError("Gradient summary {} of frame {} is greater than {}.".format(k,f, grad_max))
-			
+
 			def print_loss_summary(loss_summaries, total_losses, start_time, last_time, it, iterations, gradients=None):
 				'''
 				numpy scalars:
 					loss_summaries: {<frame>: {<name/key>: (scaled, raw, scale), ...}, ...}
 					gradients: {<frame>: {<name/key>: [grad, ...], ...}, ...}
 				'''
-				
+
 				log.info('GPU mem: current: %d MiB, max: %d MiB, limit: %d MiB', \
 					tf.contrib.memory_stats.BytesInUse().numpy().tolist()/(1024*1024), \
 					tf.contrib.memory_stats.MaxBytesInUse().numpy().tolist()/(1024*1024), \
@@ -2066,7 +2066,7 @@ if __name__=='__main__':
 				s.append('\n')
 				s.append('lr: dens {: 10.04e}, vel {: 10.04e}'.format(dens_lr.numpy(), vel_lr.numpy()))
 				log.info(''.join(s))
-			
+
 			def print_disc_summary(disc_ctx, disc_loss):#_real, disc_scores_real, disc_loss_fake, disc_scores_fake):
 				loss_summaries = [disc_ctx.opt_ctx.pop_loss_summary()]
 				active_losses = {}
@@ -2096,7 +2096,7 @@ if __name__=='__main__':
 				if setup.training.discriminator.history.samples>0:
 					s.append(', history size: {}'.format(len(disc_ctx.history)))
 				log.info(''.join(s))
-			
+
 			def optimize_density(opt_ctx, state, iterations, use_vel=False, disc_ctx=None, grow_factor=1.0, grow_intervals=[], start_iteration=0):
 				log.debug('Start density optimization')
 				with profiler.sample('Density Optimization', verbose = False):
@@ -2130,7 +2130,7 @@ if __name__=='__main__':
 						#exclude first iteration from measurement as it includes some tf setup time
 						elif it==1:
 							start_time = time.time()
-						
+
 						with profiler.sample('Density Optim Step', verbose = False):
 							if summary_iteration and setup.training.density.pre_opt.inspect_gradients:
 								for g in inspect_gradients_list: inspect_gradients_list[g].clear()
@@ -2139,7 +2139,7 @@ if __name__=='__main__':
 							opt_ctx.set_inspect_gradient(False)
 							opt_ctx.pop_losses()
 							loss_summaries = {state.frame:opt_ctx.pop_loss_summary()}
-							
+
 							# DISCRIMINATOR
 							if disc_ctx is not None:
 								disc_ctx.start_iteration(it, compute_loss_summary=summary_iteration)
@@ -2147,7 +2147,7 @@ if __name__=='__main__':
 								for disc_step in range(setup.training.discriminator.steps):
 									disc_loss = optStep_discriminator(disc_ctx, state=state) #_real, disc_loss_fake, disc_scores_real, disc_scores_fake
 							#END disc training
-							
+
 						if args.console and not args.debug:
 							progress = it%out_step+1
 							progress_bar(progress,out_step, "{:04d}/{:04d}".format(progress, out_step), length=50)
@@ -2174,7 +2174,7 @@ if __name__=='__main__':
 							log.warning('Density training of frame %d stopped after %d iterations', state.frame, it+1)
 							raise StopTraining
 							break
-			
+
 			def optimize_velocity(opt_ctx, state, iterations, grow_factor=1.0, grow_intervals=[], grow_scale_magnitude=True, start_iteration=0):
 				log.debug('Start velocity optimization')
 				with profiler.sample('Velocity Optimization', verbose = False):
@@ -2223,7 +2223,7 @@ if __name__=='__main__':
 						#exclude first iteration from measurement as it includes some tf setup time
 						elif it==1:
 							start_time = time.time()
-							
+
 						if summary_iteration and setup.training.density.pre_opt.inspect_gradients:
 							for g in inspect_gradients_list: inspect_gradients_list[g].clear()
 							opt_ctx.set_inspect_gradient(True, ig_func, iig_func)
@@ -2231,7 +2231,7 @@ if __name__=='__main__':
 						opt_ctx.set_inspect_gradient(False)
 						opt_ctx.pop_losses()
 						loss_summaries = {state.frame:opt_ctx.pop_loss_summary()}
-							
+
 						if args.console and not args.debug:
 							progress = it%out_step+1
 							progress_bar(progress,out_step, "{:04d}/{:04d}".format(progress, out_step), length=50)
@@ -2261,7 +2261,7 @@ if __name__=='__main__':
 							log.warning('Velocity training of frame %d stopped after %d iterations', state.frame, it+1)
 							raise StopTraining
 							break
-			
+
 			# scene serialization
 			scene = {
 				"cameras":cameras,
@@ -2280,31 +2280,31 @@ if __name__=='__main__':
 					json.dump(scene, file, default=tf_to_dict, sort_keys=True)#, indent=2)
 				except:
 					log.exception("Scene serialization failed.")
-		
+
 		except KeyboardInterrupt:
 			log.warning("Interrupt during setup.")
 			sys.exit(0)
 		except:
 			log.exception('Exception during setup:')
 			sys.exit(1)
-		
+
 # --- Optimization ---
 		'''
 			loss_schedules = LossSchedules( \
-				density_target =		make_schedule(setup.training.density.preprocessed_target_loss), 
-				density_target_raw =	make_schedule(setup.training.density.raw_target_loss), 
-				density_smoothness =	make_schedule(setup.training.density.smoothness_loss), 
-				density_smoothness_2 =	make_schedule(setup.training.density.smoothness_loss_2), 
-				density_warp =			make_schedule(setup.training.density.warp_loss), 
-				density_disc =			make_schedule(setup.training.discriminator.loss_scale), 
-				
-				velocity_warp_dens =	make_schedule(setup.training.velocity.density_warp_loss), 
-				velocity_warp_vel =		make_schedule(setup.training.velocity.velocity_warp_loss), 
-				velocity_divergence =	make_schedule(setup.training.velocity.divergence_loss), 
-				velocity_smoothness =	make_schedule(setup.training.velocity.smoothness_loss), 
-				
-				density_lr =			make_schedule(setup.training.density.learning_rate), 
-				velocity_lr =			make_schedule(setup.training.velocity.learning_rate), 
+				density_target =		make_schedule(setup.training.density.preprocessed_target_loss),
+				density_target_raw =	make_schedule(setup.training.density.raw_target_loss),
+				density_smoothness =	make_schedule(setup.training.density.smoothness_loss),
+				density_smoothness_2 =	make_schedule(setup.training.density.smoothness_loss_2),
+				density_warp =			make_schedule(setup.training.density.warp_loss),
+				density_disc =			make_schedule(setup.training.discriminator.loss_scale),
+
+				velocity_warp_dens =	make_schedule(setup.training.velocity.density_warp_loss),
+				velocity_warp_vel =		make_schedule(setup.training.velocity.velocity_warp_loss),
+				velocity_divergence =	make_schedule(setup.training.velocity.divergence_loss),
+				velocity_smoothness =	make_schedule(setup.training.velocity.smoothness_loss),
+
+				density_lr =			make_schedule(setup.training.density.learning_rate),
+				velocity_lr =			make_schedule(setup.training.velocity.learning_rate),
 				discriminator_lr =		make_schedule(setup.training.discriminator.learning_rate) )
 		'''
 		signal.signal(signal.SIGINT, handle_train_interrupt)
@@ -2320,18 +2320,18 @@ if __name__=='__main__':
 							#Optimize first frame density
 							log.info("--- First frame Density optimization start (%d iterations) ---", setup.training.density.pre_opt.first.iterations)
 							loss_schedules.set_schedules(
-								density_target =		make_schedule(setup.training.density.pre_opt.first.preprocessed_target_loss), 
-								density_target_raw =	make_schedule(setup.training.density.pre_opt.first.raw_target_loss), 
-								density_target_depth_smoothness = make_schedule(setup.training.density.pre_opt.first.target_depth_smoothness_loss), 
-								density_hull =			make_schedule(setup.training.density.pre_opt.first.hull), 
-								density_negative =		make_schedule(setup.training.density.pre_opt.first.negative), 
-								density_smoothness =	make_schedule(setup.training.density.pre_opt.first.smoothness_loss), 
-								density_smoothness_2 =	make_schedule(setup.training.density.pre_opt.first.smoothness_loss_2), 
-								density_smoothness_temporal = make_schedule(setup.training.density.pre_opt.first.temporal_smoothness_loss), 
-								density_warp =			make_schedule(setup.training.density.pre_opt.first.warp_loss), 
-								density_disc =			make_schedule(setup.training.density.pre_opt.first.discriminator_loss), 
-								density_lr =			make_schedule(setup.training.density.pre_opt.first.learning_rate), 
-								discriminator_lr =		make_schedule(setup.training.discriminator.pre_opt.first.learning_rate), 
+								density_target =		make_schedule(setup.training.density.pre_opt.first.preprocessed_target_loss),
+								density_target_raw =	make_schedule(setup.training.density.pre_opt.first.raw_target_loss),
+								density_target_depth_smoothness = make_schedule(setup.training.density.pre_opt.first.target_depth_smoothness_loss),
+								density_hull =			make_schedule(setup.training.density.pre_opt.first.hull),
+								density_negative =		make_schedule(setup.training.density.pre_opt.first.negative),
+								density_smoothness =	make_schedule(setup.training.density.pre_opt.first.smoothness_loss),
+								density_smoothness_2 =	make_schedule(setup.training.density.pre_opt.first.smoothness_loss_2),
+								density_smoothness_temporal = make_schedule(setup.training.density.pre_opt.first.temporal_smoothness_loss),
+								density_warp =			make_schedule(setup.training.density.pre_opt.first.warp_loss),
+								density_disc =			make_schedule(setup.training.density.pre_opt.first.discriminator_loss),
+								density_lr =			make_schedule(setup.training.density.pre_opt.first.learning_rate),
+								discriminator_lr =		make_schedule(setup.training.discriminator.pre_opt.first.learning_rate),
 								discriminator_regularization = make_schedule(setup.training.discriminator.pre_opt.first.regularization))
 							disc_ctx.train = setup.training.discriminator.pre_opt.first.train and setup.training.discriminator.active
 							tmp_state = sequence[0]
@@ -2343,37 +2343,37 @@ if __name__=='__main__':
 									sequence[1].density.assign(sequence[0].density.warped(sequence[0].velocity, order=opt_ctx.warp_order, dt=opt_ctx.dt, clamp=opt_ctx.dens_warp_clamp))
 								elif setup.training.velocity.pre_opt.seq_init.upper()!="BASE": # COPY or WARP if no vel available
 									sequence[1].density.assign(sequence[0].density.d)
-								
+
 								#Optimize second frame density
 								log.info("--- Second frame Density optimization start (%d iterations) ---", setup.training.density.pre_opt.iterations)
 								loss_schedules.set_schedules(
-									density_target =		make_schedule(setup.training.density.pre_opt.preprocessed_target_loss), 
-									density_target_raw =	make_schedule(setup.training.density.pre_opt.raw_target_loss), 
-									density_target_depth_smoothness = make_schedule(setup.training.density.pre_opt.target_depth_smoothness_loss), 
-									density_hull =			make_schedule(setup.training.density.pre_opt.hull), 
-									density_negative =		make_schedule(setup.training.density.pre_opt.negative), 
-									density_smoothness =	make_schedule(setup.training.density.pre_opt.smoothness_loss), 
-									density_smoothness_2 =	make_schedule(setup.training.density.pre_opt.smoothness_loss_2), 
-									density_smoothness_temporal = make_schedule(setup.training.density.pre_opt.temporal_smoothness_loss), 
-									density_warp =			make_schedule(setup.training.density.pre_opt.warp_loss), 
-									density_disc =			make_schedule(setup.training.density.pre_opt.discriminator_loss), 
-									density_lr =			make_schedule(setup.training.density.pre_opt.learning_rate), 
-									discriminator_lr =		make_schedule(setup.training.discriminator.pre_opt.learning_rate), 
+									density_target =		make_schedule(setup.training.density.pre_opt.preprocessed_target_loss),
+									density_target_raw =	make_schedule(setup.training.density.pre_opt.raw_target_loss),
+									density_target_depth_smoothness = make_schedule(setup.training.density.pre_opt.target_depth_smoothness_loss),
+									density_hull =			make_schedule(setup.training.density.pre_opt.hull),
+									density_negative =		make_schedule(setup.training.density.pre_opt.negative),
+									density_smoothness =	make_schedule(setup.training.density.pre_opt.smoothness_loss),
+									density_smoothness_2 =	make_schedule(setup.training.density.pre_opt.smoothness_loss_2),
+									density_smoothness_temporal = make_schedule(setup.training.density.pre_opt.temporal_smoothness_loss),
+									density_warp =			make_schedule(setup.training.density.pre_opt.warp_loss),
+									density_disc =			make_schedule(setup.training.density.pre_opt.discriminator_loss),
+									density_lr =			make_schedule(setup.training.density.pre_opt.learning_rate),
+									discriminator_lr =		make_schedule(setup.training.discriminator.pre_opt.learning_rate),
 									discriminator_regularization = make_schedule(setup.training.discriminator.pre_opt.regularization) )
 								disc_ctx.train = setup.training.discriminator.pre_opt.train and setup.training.discriminator.active
 								optimize_density(opt_ctx, sequence[1], disc_ctx=disc_ctx, iterations=setup.training.density.pre_opt.iterations)
 						#END density pre-opt (frame 0,1 )
-						
+
 						if setup.training.velocity.pre_optimization and len(sequence)>1:
 							#Optimize first frame velocity (using first and second frame density), grow to full size
 							log.info("--- First frame Velocity optimization start (%d iterations) ---", setup.training.velocity.pre_opt.first.iterations)
 							loss_schedules.set_schedules(
-								velocity_warp_dens =	make_schedule(setup.training.velocity.pre_opt.first.density_warp_loss), 
-								velocity_warp_vel =		make_schedule(setup.training.velocity.pre_opt.first.velocity_warp_loss), 
-								velocity_divergence =	make_schedule(setup.training.velocity.pre_opt.first.divergence_loss), 
-								velocity_smoothness =	make_schedule(setup.training.velocity.pre_opt.first.smoothness_loss), 
-								velocity_cossim =		make_schedule(setup.training.velocity.pre_opt.first.cossim_loss), 
-								velocity_magnitude =	make_schedule(setup.training.velocity.pre_opt.first.magnitude_loss), 
+								velocity_warp_dens =	make_schedule(setup.training.velocity.pre_opt.first.density_warp_loss),
+								velocity_warp_vel =		make_schedule(setup.training.velocity.pre_opt.first.velocity_warp_loss),
+								velocity_divergence =	make_schedule(setup.training.velocity.pre_opt.first.divergence_loss),
+								velocity_smoothness =	make_schedule(setup.training.velocity.pre_opt.first.smoothness_loss),
+								velocity_cossim =		make_schedule(setup.training.velocity.pre_opt.first.cossim_loss),
+								velocity_magnitude =	make_schedule(setup.training.velocity.pre_opt.first.magnitude_loss),
 								velocity_lr =			make_schedule(setup.training.velocity.pre_opt.first.learning_rate), )
 							optimize_velocity(opt_ctx, sequence[0], \
 								iterations=setup.training.velocity.pre_opt.first.iterations, \
@@ -2382,15 +2382,15 @@ if __name__=='__main__':
 								grow_scale_magnitude=setup.training.velocity.pre_opt.first.grow.scale_magnitude)
 							#for frame 1 to N-1
 							loss_schedules.set_schedules(
-								velocity_warp_dens =	make_schedule(setup.training.velocity.pre_opt.density_warp_loss), 
-								velocity_warp_vel =		make_schedule(setup.training.velocity.pre_opt.velocity_warp_loss), 
-								velocity_divergence =	make_schedule(setup.training.velocity.pre_opt.divergence_loss), 
-								velocity_smoothness =	make_schedule(setup.training.velocity.pre_opt.smoothness_loss), 
-								velocity_cossim =		make_schedule(setup.training.velocity.pre_opt.cossim_loss), 
-								velocity_magnitude =	make_schedule(setup.training.velocity.pre_opt.magnitude_loss), 
+								velocity_warp_dens =	make_schedule(setup.training.velocity.pre_opt.density_warp_loss),
+								velocity_warp_vel =		make_schedule(setup.training.velocity.pre_opt.velocity_warp_loss),
+								velocity_divergence =	make_schedule(setup.training.velocity.pre_opt.divergence_loss),
+								velocity_smoothness =	make_schedule(setup.training.velocity.pre_opt.smoothness_loss),
+								velocity_cossim =		make_schedule(setup.training.velocity.pre_opt.cossim_loss),
+								velocity_magnitude =	make_schedule(setup.training.velocity.pre_opt.magnitude_loss),
 								velocity_lr =			make_schedule(setup.training.velocity.pre_opt.learning_rate), )
 						#END velocity pre-opt (frame 0)
-						
+
 						for n in range(1, len(sequence)-1):
 							#advect forward
 							if setup.training.velocity.pre_optimization:
@@ -2405,7 +2405,7 @@ if __name__=='__main__':
 									sequence[n+1].density.assign(sequence[n].density.warped(sequence[n].velocity, order=opt_ctx.warp_order, dt=opt_ctx.dt, clamp=opt_ctx.dens_warp_clamp))
 								if setup.training.velocity.pre_opt.seq_init.upper()=="COPY":
 									sequence[n+1].density.assign(sequence[n].density.d)
-							
+
 							#correct advection results
 							if setup.training.density.pre_optimization:
 								#Optimize density n+1
@@ -2418,7 +2418,7 @@ if __name__=='__main__':
 									grow_factor=setup.training.velocity.pre_opt.grow.factor, \
 									grow_intervals=setup.training.velocity.pre_opt.grow.intervals, \
 									grow_scale_magnitude=setup.training.velocity.pre_opt.grow.scale_magnitude)
-						
+
 						if setup.training.velocity.pre_optimization and len(sequence)>1:
 							if setup.training.velocity.pre_opt.seq_init.upper()=="WARP":
 								#set velocity N to warped N-1
@@ -2436,7 +2436,7 @@ if __name__=='__main__':
 						save_discriminator(disc_ctx.model, 'disc_pre-opt', setup.paths.data)
 						if setup.training.discriminator.history.save:
 							disc_ctx.history.serialize(setup.paths.data, 'pre-opt')
-					
+
 					with open(os.path.join(setup.paths.log, 'profiling.txt'), 'w') as f:
 						profiler.stats(f)
 				#END pre-optimization
@@ -2466,29 +2466,29 @@ if __name__=='__main__':
 				#run full-sequence optimization
 				log.info('--- Sequence optimization (order: %s) start (%d iterations) ---', setup.training.frame_order, setup.training.iterations)
 				loss_schedules.set_schedules( \
-					density_target =		make_schedule(setup.training.density.preprocessed_target_loss), 
-					density_target_raw =	make_schedule(setup.training.density.raw_target_loss), 
-					density_target_depth_smoothness = make_schedule(setup.training.density.target_depth_smoothness_loss), 
-					density_hull =			make_schedule(setup.training.density.hull), 
-					density_negative =		make_schedule(setup.training.density.negative), 
-					density_smoothness =	make_schedule(setup.training.density.smoothness_loss), 
-					density_smoothness_2 =	make_schedule(setup.training.density.smoothness_loss_2), 
-					density_smoothness_temporal = make_schedule(setup.training.density.temporal_smoothness_loss), 
-					density_warp =			make_schedule(setup.training.density.warp_loss), 
-					density_disc =			make_schedule(setup.training.density.discriminator_loss), 
-					
-					velocity_warp_dens =	make_schedule(setup.training.velocity.density_warp_loss), 
-					velocity_warp_vel =		make_schedule(setup.training.velocity.velocity_warp_loss), 
-					velocity_divergence =	make_schedule(setup.training.velocity.divergence_loss), 
-					velocity_smoothness =	make_schedule(setup.training.velocity.smoothness_loss), 
-					velocity_cossim =		make_schedule(setup.training.velocity.cossim_loss), 
-					velocity_magnitude =	make_schedule(setup.training.velocity.magnitude_loss), 
-					
-					density_lr =			make_schedule(setup.training.density.learning_rate), 
-					velocity_lr =			make_schedule(setup.training.velocity.learning_rate), 
-					discriminator_lr =		make_schedule(setup.training.discriminator.learning_rate), 
+					density_target =		make_schedule(setup.training.density.preprocessed_target_loss),
+					density_target_raw =	make_schedule(setup.training.density.raw_target_loss),
+					density_target_depth_smoothness = make_schedule(setup.training.density.target_depth_smoothness_loss),
+					density_hull =			make_schedule(setup.training.density.hull),
+					density_negative =		make_schedule(setup.training.density.negative),
+					density_smoothness =	make_schedule(setup.training.density.smoothness_loss),
+					density_smoothness_2 =	make_schedule(setup.training.density.smoothness_loss_2),
+					density_smoothness_temporal = make_schedule(setup.training.density.temporal_smoothness_loss),
+					density_warp =			make_schedule(setup.training.density.warp_loss),
+					density_disc =			make_schedule(setup.training.density.discriminator_loss),
+
+					velocity_warp_dens =	make_schedule(setup.training.velocity.density_warp_loss),
+					velocity_warp_vel =		make_schedule(setup.training.velocity.velocity_warp_loss),
+					velocity_divergence =	make_schedule(setup.training.velocity.divergence_loss),
+					velocity_smoothness =	make_schedule(setup.training.velocity.smoothness_loss),
+					velocity_cossim =		make_schedule(setup.training.velocity.cossim_loss),
+					velocity_magnitude =	make_schedule(setup.training.velocity.magnitude_loss),
+
+					density_lr =			make_schedule(setup.training.density.learning_rate),
+					velocity_lr =			make_schedule(setup.training.velocity.learning_rate),
+					discriminator_lr =		make_schedule(setup.training.discriminator.learning_rate),
 					discriminator_regularization = make_schedule(setup.training.discriminator.regularization) )
-				
+
 				velocity_noise_schedule = make_schedule(setup.training.velocity.noise_std)
 				def seq_vel_add_noise(opt_ctx, seq):
 					vel_noise_std = velocity_noise_schedule(opt_ctx.iteration)
@@ -2529,11 +2529,11 @@ if __name__=='__main__':
 							image_mask=name.replace("/", ".") + "_img_cam{:04}", image_neg_mask=name.replace("/", ".") + "_img-neg_cam{:04}")
 					last_time = time.time()
 					start_time = last_time
-					
+
 					warp_sequence = False
 					fwd_warp_dens_clamp = setup.training.density.warp_clamp#'NONE'
 					warp_sequence_schedule = make_schedule(setup.training.density.main_warp_fwd)
-					
+
 					for it in range(setup.training.iterations): #more like epochs...
 						log.debug('Start iteration %d', it)
 						#exclude first iteration from measurement as it includes some tf setup time
@@ -2554,12 +2554,12 @@ if __name__=='__main__':
 									sequence.densities_advect_fwd(order=opt_ctx.warp_order, dt=opt_ctx.dt, clamp=fwd_warp_dens_clamp)
 								else:
 									log.info("Density set to per-frame in iteration %d.", it) #
-							
+
 							summary_iteration = (it+1)%out_step==0 or (it+1)==setup.training.iterations or stop_training
 							opt_ctx.start_iteration(it, compute_loss_summary=summary_iteration)
-							
+
 							seq_vel_add_noise(opt_ctx, sequence)
-							
+
 							if summary_iteration and setup.training.density.pre_opt.inspect_gradients:# or it==99 or it==200 or it==500:
 								for g in inspect_gradients_list: inspect_gradients_list[g].clear()
 								opt_ctx.set_inspect_gradient(True, ig_func, iig_func)
@@ -2572,7 +2572,7 @@ if __name__=='__main__':
 								loss_summaries = optStep_sequence(opt_ctx, sequence, disc_ctx, disc_samples_list=disc_imgs, order=setup.training.frame_order)
 							#print(summary_iteration, opt_ctx.compute_loss_summary(), opt_ctx._compute_loss_summary)
 							opt_ctx.set_inspect_gradient(False)
-							
+
 							# DISCRIMINATOR
 							disc_ctx.start_iteration(it, compute_loss_summary=summary_iteration)
 							disc_ctx.opt_ctx.frame = None
@@ -2580,10 +2580,10 @@ if __name__=='__main__':
 								disc_loss = optStep_discriminator(disc_ctx, state=None, additional_fake_samples=disc_imgs) #_real, disc_loss_fake, disc_scores_real, disc_scores_fake
 							#END disc training
 							del disc_imgs
-							
+
 							if warp_sequence:
 								sequence.densities_advect_fwd(order=opt_ctx.warp_order, dt=opt_ctx.dt, clamp=fwd_warp_dens_clamp)
-							
+
 						if args.console and not args.debug:
 							progress = it%out_step+1
 							progress_bar(progress,out_step, "{:04d}/{:04d}".format(progress, out_step), length=50)
@@ -2620,9 +2620,9 @@ if __name__=='__main__':
 				save_discriminator(disc_ctx.model, 'disc', setup.paths.data)
 				if setup.training.discriminator.history.save:
 					disc_ctx.history.serialize(setup.paths.data)
-			
+
 			# reset signal handling
-			
+
 		except StopTraining:
 			log.warning('Optimization stopped after %s, saving state...', format_time(time.time() - optim_start))
 			log.debug('Save sequence')
@@ -2631,7 +2631,7 @@ if __name__=='__main__':
 				save_discriminator(disc_ctx.model, 'disc_part', setup.paths.data)
 				if setup.training.discriminator.history.save:
 					disc_ctx.history.serialize(setup.paths.data, 'part')
-			
+
 		# something unexpected happended. save state if possible and exit.
 		except:
 			log.exception('Exception during training. Attempting to save state...')
@@ -2644,7 +2644,7 @@ if __name__=='__main__':
 					sequence.save(suffix="exc")
 				except:
 					log.error('Could not save sequence', exc_info=True)
-			
+
 			if 'disc_model' in locals():
 				try:
 					save_discriminator(disc_ctx.model, 'disc_exc', setup.paths.data)
@@ -2664,27 +2664,27 @@ if __name__=='__main__':
 			log.info('Optimization finished after %s', format_time(time.time() - optim_start))
 		finally:
 			signal.signal(signal.SIGINT, signal.SIG_DFL)
-		
+
 		with open(os.path.join(setup.paths.log, 'profiling.txt'), 'w') as f:
 			profiler.stats(f)
 		faulthandler.disable()
 		faultlog.close()
-		
+
 		scalar_results = munch.Munch()
 		scalar_results.buoyancy = buoyancy.numpy().tolist() if setup.training.optimize_buoyancy else None
 		scalar_results.light_intensity = [_.numpy().tolist() for _ in light_var_list] if setup.training.light.optimize else None
 		final_transform = sim_transform.copy_no_data()
 		final_transform.grid_size = sequence[0].density.shape
 		scalar_results.sim_transform = final_transform
-		
+
 		with open(os.path.join(setup.paths.data, "scalar_results.json"), "w") as f:
 			try:
 				json.dump(scalar_results, f, default=tf_to_dict, sort_keys=True, indent=2)
 			except:
 				log.exception("Failed to write scalar_results:")
-			
-		
-	if not args.fit: #args.render and 
+
+
+	if not args.fit: #args.render and
 		log.debug('Load data')
 		if setup.data.load_sequence is None:
 			raise ValueError("No sequence specified (setup.data.load_sequence)")
@@ -2727,10 +2727,10 @@ if __name__=='__main__':
 				sys.exit(1)
 			frames = list(range(setup.data.start, setup.data.stop, setup.data.step))
 			orig_frames = list(range(load_setup.data.start, load_setup.data.stop, load_setup.data.step))
-			
+
 			if setup.data.step!=load_setup.data.step:
 				log.info("Loaded frame step does not match data, scaling velocity with %f", setup.data.step/load_setup.data.step)
-			
+
 			try:
 				load_scalars = load_entry.scalars
 				t = from_dict(load_scalars["sim_transform"])
@@ -2738,7 +2738,7 @@ if __name__=='__main__':
 				log.exception("Failed to load transformation, using default.")
 			else:
 				sim_transform = t
-			
+
 			for f in frames:
 				if f not in orig_frames:
 					raise ValueError("Frame %d not in available frames"%f)
@@ -2757,7 +2757,7 @@ if __name__=='__main__':
 				for s in sequence:
 					s.velocity.scale_magnitude(setup.data.step/load_setup.data.step)
 					s.density.scale(setup.data.density.scale)
-			
+
 			def load_targets_from_run(frame, cam_ids=[0,1,2,3,4]):
 				targets = munch.Munch()
 				targets.targets_raw = []
@@ -2773,7 +2773,7 @@ if __name__=='__main__':
 						if flip_y:
 							tmp_img = np.flip(tmp_img, axis=0)
 					return tmp_img
-				
+
 				try:
 					for cam_id in cam_ids:
 						targets.targets_raw.append(read_image_from_entry("target_raw_base_cam{}.exr".format(cam_id)))
@@ -2782,18 +2782,18 @@ if __name__=='__main__':
 				except IOError as e:
 					log.error("Failed to load targets for cam %d of frame %d: %s", cam_id, frame, e)
 				return targets
-			
+
 			log.debug('Load run targets')
 			#sequence_targets = {}
 			setup_targets = (args.render and setup.validation.render_target) or setup.validation.stats
 			for state in sequence:
 				frame = state.frame
-				
+
 				state.target_cameras = setup_target_cameras(target_cameras, train_cam_resolution, None, setup.rendering.target_cameras.crop_frustum_pad)
-				
+
 				if setup_targets:
 					state_targets = load_targets_from_run(frame, range(len(state.target_cameras)))#frame_preSetup(frame, sim_transform)
-				
+
 				with tf.device(resource_device):
 					if setup_targets:
 						state.targets_raw = tf.identity(state_targets.targets_raw)
@@ -2804,14 +2804,14 @@ if __name__=='__main__':
 							state.hull = tf.constant(load_numpy(hull_file), dtype=tf.float32)
 					except OSError as e:
 						log.warning("Failed to load tight hull for frame %d: %s", frame, e)
-		
+
 		vel_shape = sequence[0].velocity.centered_shape
 		z = tf.zeros([1] + vel_shape + [1])
-		
+
 	#	vel_scale = world_scale(vel_shape, width=1.)
-	
+
 	if True: #args.render or args.fit:
-		
+
 		def print_stats_dict(stats, name, print_fn):
 			s = '{}:\n'.format(name)
 			for name in sorted(stats.keys()):
@@ -2823,7 +2823,7 @@ if __name__=='__main__':
 				else:
 					s += '{:<16}: {: 13.06e}\n'.format(name, value)
 			print_fn(s)
-			
+
 		def render_sequence_cmp(*sequences, cameras, path, name_pre='seq', image_format='PNG', render_velocity=True, background="COLOR", crop_cameras=True):
 			#sequences: iterables of states to render or lists with images for every camera.
 			assert len(sequences)>1, "need at least 2 sequences to compare"
@@ -2836,7 +2836,7 @@ if __name__=='__main__':
 			for states in zip(*sequences):
 				for state in states:
 					if isinstance(state, State):
-						dens_hull = state.density.hull #state.hull if hasattr(state, "hull") else 
+						dens_hull = state.density.hull #state.hull if hasattr(state, "hull") else
 						if dens_hull is None:
 							continue
 						dens_transform = state.get_density_transform()
@@ -2872,9 +2872,9 @@ if __name__=='__main__':
 						if state_shape[-1]==1:
 							state = tf.tile(state, (1,1,1,3))
 						dens_imgs.append(tf.identity(state))
-					
+
 				renderer.write_images([tf.concat(dens_imgs, axis=-2)], [name_pre + '_cmp_dens_cam{}_{:04d}'], base_path=path, use_batch_id=True, frame_id=i, format=image_format)
-				
+
 				# velocity: [orig, veldens_warp]
 				if render_velocity:
 					vel_imgs = []
@@ -2882,14 +2882,14 @@ if __name__=='__main__':
 					for state in states:
 						if isinstance(state, State):
 							vel_transform = state.get_velocity_transform()
-							vel_scale = vel_transform.cell_size_world().value 
+							vel_scale = vel_transform.cell_size_world().value
 							log.debug("Render velocity frame %d with cell size %s", i, vel_scale)
 							vel_centered = state.velocity.centered()*vel_scale/float(setup.data.step)*setup.rendering.velocity_scale
 							vel_imgs.append(tf.concat(vel_renderer.render_density(vel_transform, [tf.abs(vel_centered)], cameras, split_cameras=split_cams), axis=0))
 					vel_renderer.write_images([tf.concat(vel_imgs, axis=-2)], [name_pre + '_cmp_velA_cam{}_{:04d}'], base_path=path, use_batch_id=True, frame_id=i, format=image_format)
-				
+
 				i+=1
-		
+
 		sF_sequence = []
 		def get_frame_stats(state, mask=None, cmp_scalarFlow=False):
 			stats = {}
@@ -2900,7 +2900,7 @@ if __name__=='__main__':
 					if mask is not None:
 						dens_hull_stats, vel_hull_stats, _ = state.stats(mask=mask, dt=1.0, order=setup.training.velocity.warp_order, clamp=setup.training.density.warp_clamp)
 						vel_hull_stats['scale'] = world_scale(state.velocity.centered_shape, width=1.)
-					
+
 				if cmp_scalarFlow: #setup.validation.cmp_scalarFlow
 					#compare to scalarFlow
 					#problem: unknown offset between raw and preprocessed/reconstructed frame indices
@@ -2920,7 +2920,7 @@ if __name__=='__main__':
 						# (IF clip and crop grid) -> always: use base SF transform to sample SF data to current grid
 						dens_transform = state.get_density_transform()
 						sF_d = DensityGrid(state.density.shape, d=tf.squeeze(scale_renderer._sample_transform(sF_d.d, [sF_transform], [dens_transform], fix_scale_center=True), (0,)), as_var=False, scale_renderer=scale_renderer, device=resource_device)
-						
+
 						# corrections for staggered grids needed
 						vel_transform = state.get_velocity_transform()
 						sF_v_x_transform = GridTransform(sF_v.x_shape, translation=[-.5, 0., 0.], parent=sF_transform)
@@ -2934,10 +2934,10 @@ if __name__=='__main__':
 							y=tf.squeeze(scale_renderer._sample_transform(sF_v.y, [sF_v_y_transform], [vel_y_transform], fix_scale_center=True), (0,)), \
 							z=tf.squeeze(scale_renderer._sample_transform(sF_v.z, [sF_v_z_transform], [vel_z_transform], fix_scale_center=True), (0,)), \
 							boundary=sF_v.boundary, as_var=False, scale_renderer=scale_renderer, warp_renderer=warp_renderer, device=resource_device)
-						
+
 						#sF_d.scale(dens_stats['dMean']/sF_d.mean())
 						sF_v.scale_magnitude(setup.data.step) # account for larger step sizes
-						
+
 						sF_state = State(sF_d, sF_v, frame=state.frame, transform=dens_transform.copy_no_data())
 						if setup.validation.cmp_scalarFlow_render:
 							sF_sequence.append(sF_state)
@@ -2947,14 +2947,14 @@ if __name__=='__main__':
 							sF_dens_hull_stats, sF_vel_hull_stats, _ = sF_state.stats(mask=mask, dt=1.0, order=setup.training.velocity.warp_order, clamp=setup.training.density.warp_clamp)
 						dens_SE = (sF_state.density.d - state.density.d)**2
 						vel_diffMag = (sF_state.velocity - state.velocity).magnitude()
-						
+
 						# esxclude any zero (small) velocities, as there is no valid angle
 						vel_CangleRad_mask = tf.greater(sF_state.velocity.magnitude() * state.velocity.magnitude(), 1e-8)
 						vel_CangleRad = tf_angle_between(sF_state.velocity.centered(), state.velocity.centered(), axis=-1, keepdims=True)
-						
+
 						if mask.dtype!=tf.bool:
 							mask = tf.not_equal(mask, 0)
-						
+
 						dens_stats['_sF_SE'] = tf_tensor_stats(dens_SE, as_dict=True)
 						vel_stats['_sF_vdiff_mag'] = tf_tensor_stats(vel_diffMag, as_dict=True)
 						vel_stats['_sF_angleCM_rad'] = tf_tensor_stats(tf.boolean_mask(vel_CangleRad, vel_CangleRad_mask), as_dict=True)
@@ -2962,15 +2962,15 @@ if __name__=='__main__':
 							dens_hull_stats['_sF_SE'] = tf_tensor_stats(tf.boolean_mask(dens_SE, mask), as_dict=True)
 							vel_hull_stats['_sF_vdiff_mag'] = tf_tensor_stats(tf.boolean_mask(vel_diffMag, mask), as_dict=True)
 							vel_hull_stats['_sF_angleCM_rad'] = tf_tensor_stats(tf.boolean_mask(vel_CangleRad, tf.logical_and(mask, vel_CangleRad_mask)), as_dict=True)
-						
+
 						stats["sF_density"]=sF_dens_stats
 						stats["sF_velocity"]=sF_vel_stats
 						#stats["sF_target"]=sF_tar_stats
 						if mask is not None:
 							stats["sF_density_hull"]=sF_dens_hull_stats
 							stats["sF_velocity_hull"]=sF_vel_hull_stats
-						
-				
+
+
 				stats["density"]=dens_stats
 				stats["velocity"]=vel_stats
 				stats["target"]=tar_stats
@@ -2980,7 +2980,7 @@ if __name__=='__main__':
 			except:
 				log.exception("Exception during reconstruction stats of frame %d", state.frame)
 			return stats
-		
+
 		if setup.validation.stats:
 			log.info("Data Statistics")
 			stats_file = os.path.join(setup.paths.log, "stats.json")
@@ -3013,7 +3013,7 @@ if __name__=='__main__':
 						"mean":tf.reduce_mean([stats_dict[k]["velocity_hull"]['_sF_vdiff_mag']["mean"] for k in frame_keys]),
 						"std":tf_reduce_std([stats_dict[k]["velocity_hull"]['_sF_vdiff_mag']["mean"] for k in frame_keys]),
 					}}
-				
+
 				if setup.validation.cmp_scalarFlow_render and len(sequence)==len(sF_sequence):
 					log.info("Render ScalarFlow comparison.")
 					try:
@@ -3026,20 +3026,20 @@ if __name__=='__main__':
 					except:
 						log.exception("ScalarFlow compare render exception:")
 			del sF_sequence
-			
+
 			try:
 				json_dump(stats_file, stats_dict, compressed=True, default=tf_to_dict, sort_keys=True)
 			except:
 				log.exception("Failed to write stats:")
-		
+
 		if setup.validation.warp_test:
 			log.info("Warp Test")
 			with profiler.sample("warp test"):
 				# no clamping used here to see error introduced by the method
 				# only density warped
 				warp_test_clamp_dens = 'NONE' if setup.training.density.warp_clamp=='NEGATIVE' else setup.training.density.warp_clamp
-				
-				
+
+
 				def make_warp_test_inflow():
 					# XYZ
 					if_offset = Int3(25,14,35)
@@ -3052,7 +3052,7 @@ if __name__=='__main__':
 					padding = [_ for _ in zip(padding_before, padding_after)]
 					test_inflow = tf.pad(test_inflow, padding)
 					return test_inflow
-				
+
 				vel_bounds = None
 				def tmp_get_test_bounds(shape):
 					offset = shape.value //4
@@ -3063,7 +3063,7 @@ if __name__=='__main__':
 					levelset = tf.pad(tf.ones(size, dtype=tf.float32), pad, constant_values=-1)
 					return Zeroset(levelset, outer_bounds="OPEN", as_var=False, device=resource_device)
 				vel_bounds = tmp_get_test_bounds(GridShape.from_tensor(sequence[0].density._d))
-				
+
 				sequence_warped_dens_noIF = sequence.copy(as_var=False, device=resource_device)
 				sequence_warped_dens_noIF[0].density.assign(make_warp_test_inflow())
 				for s in sequence_warped_dens_noIF:
@@ -3071,13 +3071,13 @@ if __name__=='__main__':
 					s.density._inflow=None
 					s.velocity.set_boundary(vel_bounds)
 				sequence_warped_dens_noIF.densities_advect_fwd(order=setup.training.velocity.warp_order, clamp=warp_test_clamp_dens)
-				
+
 			#	sequence_warped_dens_noD = sequence.copy(as_var=False, device=resource_device)
 			#	for s in sequence_warped_dens_noD:
 			#		s.density.restrict_to_hull=False
 			#		s.density.assign(tf.zeros_like(s.density._d))
 			#	sequence_warped_dens_noD.densities_advect_fwd(order=setup.training.velocity.warp_order, clamp=warp_test_clamp_dens)
-				
+
 				# velocity and density warped
 				sequence_warped_veldens = sequence.copy(as_var=False, device=resource_device)
 				for s in sequence_warped_veldens:
@@ -3085,7 +3085,7 @@ if __name__=='__main__':
 					s.velocity.set_boundary(vel_bounds)
 				sequence_warped_veldens.velocities_advect_fwd(order=setup.training.velocity.warp_order, clamp=setup.training.velocity.warp_clamp)
 				sequence_warped_veldens.densities_advect_fwd(order=setup.training.velocity.warp_order, clamp=warp_test_clamp_dens)
-				
+
 				# warp errors
 				if False:
 					warp_errors = {}
@@ -3105,7 +3105,7 @@ if __name__=='__main__':
 						}
 						e["warp_dens"] = get_frame_stats(state_d, mask=state_d.density.hull)
 						e["warp_vel-dens"] = get_frame_stats(state_vd, mask=state_d.density.hull)
-						
+
 						warp_errors["{:04d}".format(state.frame)]=e
 						we_tmp.append(e)
 					# seqence stats, mean and std of errors
@@ -3118,13 +3118,13 @@ if __name__=='__main__':
 					#with open(os.path.join(setup.paths.warp_test, "warp_error.json"), "w") as file:
 					#	json.dump(warp_errors, file, default=tf_to_dict, sort_keys=True, indent=2)
 					json_dump(os.path.join(setup.paths.warp_test, "warp_error.json"), warp_errors, compressed=True, default=tf_to_dict, sort_keys=True)
-				
+
 				# render warp image cmp
 				if setup.validation.warp_test_render:
 				#	AABB_corners_WS = []
 				#	for state in sequence:
 				#		dens_transform = state.get_density_transform()
-				#		dens_hull = state.density.hull #state.hull if hasattr(state, "hull") else 
+				#		dens_hull = state.density.hull #state.hull if hasattr(state, "hull") else
 				#		if dens_hull is None:
 				#			continue
 				#		AABB_corners_WS += dens_transform.transform_AABB(*hull_AABB_OS(tf.squeeze(dens_hull, (0,-1))), True)
@@ -3147,18 +3147,18 @@ if __name__=='__main__':
 						log.debug("Render warp cmp frame %d (%d)", state.frame, i)
 						# density: [orig, dens_warp, veldens_warp]
 						if args.console: render_bar.update(i*2, desc="Frame {:03d} ({:03d}/{:03d}): {:30}".format(state.frame, i+1,len(sequence), "Warp cmp Density"))# progress_bar(i*2,len(sequence)*2, , length=30)
-						
+
 						tmp_transform = state_noIF.get_density_transform()
 						tmp_transform.set_data(tf.zeros_like(state_noIF.density.d))
 						imgs = tf.concat(vel_renderer.render_density(tmp_transform, [tf.concat([state_noIF.density.d]*3, axis=-1)], seq_cams, background=None, split_cameras=False), axis=0)
 						#render_cycle(tmp_transform, [main_camera], [tf.concat([state_d.density.d]*3, axis=-1)], vel_renderer, state.data_path, steps=cycle_steps, steps_per_cycle=cycle_steps, name_pre='dens', img_transfer=dens_grads, img_stats=False, format="PNG")
 						imgs = tf_cmap_nearest(imgs, *dens_grads)
 						renderer.write_images([imgs], ['warp_dens_cam{}_{:04d}'], base_path=setup.paths.warp_test, use_batch_id=True, frame_id=i, format='PNG')
-						
+
 						# velocity: [orig, veldens_warp]
 						if True:
 							vel_transform = state.get_velocity_transform()
-							vel_scale = vel_transform.cell_size_world().value 
+							vel_scale = vel_transform.cell_size_world().value
 							log.debug("Render velocity frame %d (%d) with cell size %s", state.frame, i, vel_scale)
 							if args.console: render_bar.update(i*2, desc="Frame {:03d} ({:03d}/{:03d}): {:30}".format(state.frame, i+1,len(sequence), "Warp cmp Velocity"))# progress_bar(i*2+1,len(sequence)*2, , length=30)
 							vel_render_scale = vel_scale/float(setup.data.step)*setup.rendering.velocity_scale
@@ -3167,14 +3167,14 @@ if __name__=='__main__':
 								tf.concat(vel_renderer.render_density(state_vd.get_velocity_transform(), [tf.abs(state_vd.velocity.centered()*vel_render_scale)], seq_cams, split_cameras=split_cams), axis=0),
 							]
 							vel_renderer.write_images([tf.concat(vel_imgs, axis=-2)], ['warp_velA_cam{}_{:04d}'], base_path=setup.paths.warp_test, use_batch_id=True, frame_id=i, format='PNG')
-						
+
 						i+=1
 					if args.console: render_bar.finish("Done")
 			#del sequence_warped_dens
 			del sequence_warped_dens_noIF
 			#del sequence_warped_dens_noD
 			del sequence_warped_veldens
-		
+
 	if args.render:
 		try:
 			log.info('Render final output.')
@@ -3186,12 +3186,12 @@ if __name__=='__main__':
 			log.warning("Interrupted final output rendering.")
 		except:
 			log.exception("Error during final output rendering:")
-			
-		
-		
+
+
+
 		#render_sequence(sequence, vel_scale, z, cycle=True, cycle_steps=12, sF_cam=True)
-			
-		
+
+
 	with open(os.path.join(setup.paths.log, 'profiling.txt'), 'w') as f:
 		profiler.stats(f)
 	#profiler.stats()

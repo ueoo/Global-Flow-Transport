@@ -1,12 +1,23 @@
-import copy, os
-import tensorflow as tf
+import copy
+import logging
+import os
+
 import numpy as np
-from lib.tf_ops import shape_list, spacial_shape_list, tf_tensor_stats, tf_norm2, tf_angle_between
+import tensorflow as tf
+
+from lib.tf_ops import (
+    shape_list,
+    spacial_shape_list,
+    tf_angle_between,
+    tf_norm2,
+    tf_tensor_stats,
+)
 from lib.util import load_numpy
+
 from .renderer import Renderer
 from .transform import GridTransform
 from .vector import GridShape, Vector3
-import logging
+
 
 LOG = logging.getLogger("Structs")
 
@@ -28,7 +39,7 @@ def get_coord_field(shape, offset=[0,0,0], lod=0.0, concat=True):
 	if concat:
 		coord_data = tf.concat(coord_data, axis=-1)
 
-	
+
 	return coord_data
 
 class Zeroset:
@@ -38,7 +49,7 @@ class Zeroset:
 		self._device = device
 		self._name = var_name
 		self._is_trainable = trainable
-		
+
 		with tf.device(self._device):
 			if shape is not None:
 				assert isinstance(shape, GridShape)
@@ -47,18 +58,18 @@ class Zeroset:
 				self._levelset = tf.Variable(initial_value=initial_value, name=var_name, trainable=trainable)
 			else:
 				self._levelset = tf.identity(initial_value)
-	
+
 	@property
 	def grid_shape(self):
 		return GridShape.from_tensor(self._levelset)
-	
+
 	def _hull_staggered_lerp_weight(self, a, b):
 		a_leq = tf.less_equal(a,0)
 		return tf.where( tf.logical_xor(a_leq, tf.less_equal(b,0)), #sign change along iterpolation
 				tf.abs( tf.divide( tf.minimum(a,b), tf.subtract(a,b) ) ),
 				tf.cast(a_leq, dtype=a.dtype)
 			)
-	
+
 	def _hull_simple_staggered_component(self, axis):
 		assert axis in [1,2,3,-2,-3,-4]
 		axis = axis%5
@@ -73,26 +84,26 @@ class Zeroset:
 		hull = self._hull_staggered_lerp_weight(cells_prev,cells_next)
 		hull = tf.pad(hull, pad, constant_values=1 if self.outer_bounds=="OPEN" else 0)
 		return hull
-	
+
 	def to_hull_simple_staggered(self):
 		return self._hull_simple_staggered_component(-2), self._hull_simple_staggered_component(-3), self._hull_simple_staggered_component(-4)
-	
+
 	def to_hull_simple_centered(self):
 		raise NotImplementedError()
-	
+
 	def to_denstiy_simple_centered(self):
 		return tf.where(tf.greater(self._levelset, 0), 250, 0)
-	
+
 	def resize(self, shape):
 		assert shape_list(shape)==[3]
 		new_shape = GridShape(shape)
 		if new_shape==self.grid_shape:
 			return
 		raise NotImplementedError("Zeroset.resize() not implemented.")
-	
+
 	def assign(levelset):
 		raise NotImplementedError()
-		
+
 
 class DensityGrid:
 	def __init__(self, shape, constant=0.1, as_var=True, d=None, scale_renderer=None, hull=None, inflow=None, inflow_offset=None, inflow_mask=None, device=None, var_name="denstiy", trainable=True, restrict_to_hull=True):
@@ -109,19 +120,19 @@ class DensityGrid:
 			rand_init = tf.constant_initializer(constant)
 			with tf.device(self._device):
 				self._d = tf.Variable(initial_value=d if d is not None else rand_init(shape=[1]+self.shape+[1], dtype=tf.float32), name=var_name+'_dens', trainable=True)
-			
+
 		else:
 			with tf.device(self._device):
 				if d is not None:
 					self._d = tf.constant(d, dtype=tf.float32)
 				else:
 					self._d = tf.constant(constant, shape=[1]+self.shape+[1], dtype=tf.float32)
-			
+
 		self.scale_renderer = scale_renderer
 		with tf.device(self._device):
 			self.hull = tf.constant(hull, dtype=tf.float32) if hull is not None else None
 		self.restrict_to_hull = restrict_to_hull
-		
+
 		if inflow is not None:
 			with tf.device(self._device):
 				if isinstance(inflow, str) and inflow=='CONST':
@@ -137,39 +148,39 @@ class DensityGrid:
 			self.inflow_offset = inflow_offset
 		else:
 			self._inflow = None
-	
+
 	@property
 	def trainable(self):
 		return self._is_trainable and self.is_var
-	
+
 	@property
 	def d(self):
 		if self.restrict_to_hull:
 			return self.with_hull()
 		else:
 			return tf.identity(self._d)
-	
+
 	def with_hull(self):
 		if self.hull is not None:
 			return self._d * self.hull # hull is a (smooth) binary mask
 		else:
 			return tf.identity(self._d)
-	
+
 	@property
 	def inflow(self):
 		if self._inflow is None:
 			return tf.zeros_like(self._d, dtype=tf.float32)
-		elif self.inflow_mask is not None: #hasattr(self, 'inflow_mask') and 
+		elif self.inflow_mask is not None: #hasattr(self, 'inflow_mask') and
 			return tf.pad(self._inflow*self.inflow_mask, self._inflow_padding)
 		else:
 			return tf.pad(self._inflow, self._inflow_padding)
-	
+
 	def with_inflow(self):
 		density = self.d
 		if self._inflow is not None:
 			density = tf.maximum(density+self.inflow, 0)
 		return density
-	
+
 	@classmethod
 	def from_file(cls, path, as_var=True, scale_renderer=None, hull=None, inflow=None, inflow_offset=None, inflow_mask=None, device=None, var_name="denstiy", trainable=True, restrict_to_hull=True):
 		try:
@@ -191,12 +202,12 @@ class DensityGrid:
 			return None
 		else:
 			return grid
-		
+
 	@classmethod
 	def from_scalarFlow_file(cls, path, as_var=True, shape=None, scale_renderer=None, hull=None, inflow=None, inflow_offset=None, inflow_mask=None, device=None, var_name="sF_denstiy", trainable=True, restrict_to_hull=True):
 		# if shape is set the loaded grid will be reshaped if necessary
 		density = load_numpy(path).astype(np.float32)[::-1]
-		density = density.reshape([1] + list(density.shape)) # 
+		density = density.reshape([1] + list(density.shape)) #
 		density = tf.constant(density, dtype=tf.float32)
 		d_shape = spacial_shape_list(density)
 		if shape is not None and shape!=d_shape:
@@ -214,7 +225,7 @@ class DensityGrid:
 			density = tf.concat([tf.zeros_like(inflow, dtype=tf.float32), density], axis=-3)
 		return cls(d_shape, d=density, as_var=as_var, scale_renderer=scale_renderer, hull=hull, inflow=inflow, inflow_offset=inflow_offset, inflow_mask=inflow_mask, \
 			device=device, var_name=var_name, trainable=trainable, restrict_to_hull=restrict_to_hull)
-	
+
 	def copy(self, as_var=None, device=None, var_name=None, trainable=None, restrict_to_hull=None):
 		if as_var is None:
 			as_var = self.is_var
@@ -232,7 +243,7 @@ class DensityGrid:
 			grid = DensityGrid(self.shape, d=tf.identity(self._d), as_var=as_var, scale_renderer=self.scale_renderer, hull=self.hull, \
 				device=device, var_name=var_name, trainable=trainable, restrict_to_hull=restrict_to_hull)
 		return grid
-	
+
 	def scaled(self, new_shape, with_inflow=False):
 		if not (isinstance(new_shape, list) and len(new_shape)==3):
 			raise ValueError("Invalid shape")
@@ -245,7 +256,7 @@ class DensityGrid:
 			LOG.debug("No need to scale density to same shape %s", self.shape)
 			d_scaled = tf.identity(density)
 		return d_scaled
-	
+
 	def copy_scaled(self, new_shape, as_var=None, device=None, var_name=None, trainable=None, restrict_to_hull=None):
 		'''Does not copy inflow and hull, TODO'''
 		if as_var is None:
@@ -259,12 +270,12 @@ class DensityGrid:
 		d_scaled = self.scaled(new_shape)
 		grid = DensityGrid(new_shape, d=d_scaled, as_var=as_var, scale_renderer=self.scale_renderer, device=device, var_name=var_name, trainable=trainable, restrict_to_hull=restrict_to_hull)
 		return grid
-	
+
 	def warped(self, vel_grid, order=1, dt=1.0, clamp="NONE"):
 		if not (isinstance(vel_grid, VelocityGrid)):
 			raise ValueError("Invalid velocity grid")
 		return vel_grid.warp(self.with_inflow(), order=order, dt=dt, clamp=clamp)
-	
+
 	def copy_warped(self, vel_grid, as_var=None, order=1, dt=1.0, device=None, var_name=None, clamp="NONE", trainable=None, restrict_to_hull=None):
 		'''Does not copy inflow and hull, TODO'''
 		if as_var is None:
@@ -278,10 +289,10 @@ class DensityGrid:
 		d_warped = self.warped(vel_grid, order=order, dt=dt, clamp=clamp)
 		grid = DensityGrid(self.shape, d=d_warped, as_var=as_var, scale_renderer=self.scale_renderer, device=device, var_name=var_name, trainable=trainable, restrict_to_hull=restrict_to_hull)
 		return grid
-	
+
 	def scale(self, scale):
 		self.assign(self._d*scale)
-	
+
 	def apply_clamp(self, vmin, vmax):
 		vmin = tf.maximum(vmin, 0)
 		d = tf.clip_by_value(self._d, vmin, vmax)
@@ -296,7 +307,7 @@ class DensityGrid:
 				self._inflow_padding[4][0] :  denstiy_shape[4]-self._inflow_padding[4][1]]
 			inflow = tf.clip_by_value(self._inflow, vmin - density_cropped, vmax - density_cropped)
 		self.assign(d, inflow)
-	
+
 	def assign(self, d, inflow=None):
 		shape = shape_list(d)
 		if not len(shape)==5 or not shape[-1]==1 or not shape[-4:-1]==self.shape:
@@ -310,7 +321,7 @@ class DensityGrid:
 				self._d = tf.identity(d)
 				if self._inflow is not None and inflow is not None:
 					self._inflow = tf.identity(inflow)
-	
+
 	def var_list(self):
 		if self.is_var:
 			if self._inflow is not None:
@@ -318,7 +329,7 @@ class DensityGrid:
 			return [self._d]
 		else:
 			raise TypeError("This DensityGrid is not a variable.")
-	
+
 	def get_variables(self):
 		if self.is_var:
 			var_dict = {'density': self._d}
@@ -327,8 +338,8 @@ class DensityGrid:
 			return var_dict
 		else:
 			raise TypeError("This DensityGrid is not a variable.")
-		
-	
+
+
 	def save(self, path):
 		density = self._d
 		if isinstance(density, (tf.Tensor, tf.Variable)):
@@ -351,10 +362,10 @@ class DensityGrid:
 				save['inflow_mask']=inflow_mask
 			save['inflow_offset']=np.asarray(self.inflow_offset)
 		np.savez_compressed(path, density, **save)
-	
+
 	def mean(self):
 		return tf.reduce_mean(self.d)
-	
+
 	def stats(self, mask=None, state=None, **warp_kwargs):
 		'''
 			mask: optional binary float mask, stats only consider cells>0.5
@@ -363,7 +374,7 @@ class DensityGrid:
 		if mask is not None:
 			mask =  mask if mask.dtype==tf.bool else tf.greater(mask, 0.5)
 			d = tf.boolean_mask(d, mask)
-		
+
 		stats = {
 			'density': tf_tensor_stats(d, as_dict=True),
 			'shape':self.shape,
@@ -387,7 +398,7 @@ class VelocityGrid:
 		z_shape = copy.copy(centered_shape)
 		z_shape[0] +=1
 		return x_shape, y_shape, z_shape
-		
+
 	def __init__(self, centered_shape, std=0.1, as_var=True, x=None, y=None, z=None, boundary=None, scale_renderer=None, warp_renderer=None, *, coords=None, lod=None, device=None, var_name="velocity", trainable=True):
 		self.centered_shape = centered_shape.tolist() if isinstance(centered_shape, np.ndarray) else centered_shape
 		self.x_shape, self.y_shape, self.z_shape = VelocityGrid.component_shapes(self.centered_shape)
@@ -426,12 +437,12 @@ class VelocityGrid:
 			if z is None:
 				z = tf.constant(tf.random.uniform([1]+self.z_shape+[1], -std, std, dtype=tf.float32))
 			self.assign(x,y,z)
-		
+
 		if lod is None:
 			lod = tf.zeros([1]+self.centered_shape+[1])
 		with tf.device(self._device):
 			self.lod_pad = tf.identity(lod)
-		
+
 		self.scale_renderer = scale_renderer
 		if self.scale_renderer is not None:
 			if (self.outer_bounds=='CLOSED' and self.scale_renderer.boundary_mode!='BORDER') \
@@ -442,16 +453,16 @@ class VelocityGrid:
 			if (self.outer_bounds=='CLOSED' and self.warp_renderer.boundary_mode!='BORDER') \
 				or (self.outer_bounds=='OPEN' and self.warp_renderer.boundary_mode!='CLAMP'):
 				LOG.warning("Velocity outer boundary %s does not match scale renderer boundary mode %s", self.outer_bounds, self.warp_renderer.boundary_mode)
-	
+
 	def set_boundary(self, boundary):
 		assert (boundary is None) or isinstance(boundary, Zeroset)
 		self.boundary = boundary
 		self.outer_bounds = self.boundary.outer_bounds if self.boundary is not None else "OPEN"
-	
+
 	@property
 	def trainable(self):
 		return self._is_trainable and self.is_var
-	
+
 	@property
 	def x(self):
 		v = self._x
@@ -470,7 +481,7 @@ class VelocityGrid:
 		if self.boundary is not None:
 			v*= self.boundary._hull_simple_staggered_component(-4)
 		return v
-	
+
 	@classmethod
 	def from_centered(cls, centered_grid, as_var=True, boundary=None, scale_renderer=None, warp_renderer=None, device=None, var_name="velocity", trainable=True):
 		centered_shape = shape_list(centered_grid)
@@ -482,7 +493,7 @@ class VelocityGrid:
 		x,y,z = vel_grid._centered_to_staggered(centered_grid)
 		vel_grid.assign(x,y,z)
 		return vel_grid
-		
+
 	@classmethod
 	def from_file(cls, path, as_var=True, boundary=None, scale_renderer=None, warp_renderer=None, device=None, var_name="velocity", trainable=True):
 		try:
@@ -501,7 +512,7 @@ class VelocityGrid:
 			return None
 		else:
 			return vel_grid
-	
+
 	@classmethod
 	def from_scalarFlow_file(cls, path, as_var=True, shape=None, boundary=None, scale_renderer=None, warp_renderer=None, device=None, var_name="sF_velocity", trainable=True):
 		# sF velocities are stored as combined staggered grid with upper cells missing, DHWC with C=3
@@ -532,10 +543,10 @@ class VelocityGrid:
 		#	v_z = scale_renderer.resample_grid3D_aligned(v_z, shape.value)*vel_scale.z#[0]
 		#	velocity = tf.concat([v_x, v_y, v_z], axis=-1)
 			v_shape = shape
-		
+
 		#return cls.from_centered(velocity,as_var=as_var, boundary=boundary, scale_renderer=scale_renderer, warp_renderer=warp_renderer, device=device, var_name=var_name)
 		return cls(v_shape, x=v_x, y=v_y, z=v_z,as_var=as_var, boundary=boundary, scale_renderer=scale_renderer, warp_renderer=warp_renderer, device=device, var_name=var_name, trainable=trainable)
-	
+
 	def copy(self, as_var=None, device=None, var_name=None, trainable=None):
 		if as_var is None:
 			as_var = self.is_var
@@ -546,8 +557,8 @@ class VelocityGrid:
 		grid = VelocityGrid(self.centered_shape, x=tf.identity(self._x), y=tf.identity(self._y), z=tf.identity(self._z), as_var=as_var, \
 			boundary=self.boundary, scale_renderer=self.scale_renderer, warp_renderer=self.warp_renderer, device=device, var_name=var_name, trainable=trainable)
 		return grid
-		
-	
+
+
 	def scaled(self, centered_shape, scale_magnitude=True):
 		if not (isinstance(centered_shape, list) and len(centered_shape)==3):
 			raise ValueError("Invalid shape")
@@ -571,7 +582,7 @@ class VelocityGrid:
 			y_scaled = tf.identity(self.y)
 			z_scaled = tf.identity(self.z)
 		return x_scaled, y_scaled, z_scaled
-	
+
 	def copy_scaled(self, centered_shape, scale_magnitude=True, as_var=None, device=None, var_name=None, trainable=None):
 		if as_var is None:
 			as_var = self.is_var
@@ -583,14 +594,14 @@ class VelocityGrid:
 		grid = VelocityGrid(centered_shape, x=x_scaled, y=y_scaled, z=z_scaled, as_var=as_var, \
 			boundary=self.boundary, scale_renderer=self.scale_renderer, warp_renderer=self.warp_renderer, device=device, var_name=var_name, trainable=trainable)
 		return grid
-	
+
 	def _lut_warp_vel(self, shape, dt=1.0):
 		# use to get lookup positions to warp velocity components
 		vel = self._sampled_to_shape(shape) #3 x 1DHW1
 		vel_lut = [- vel[i]*dt for i in range(len(vel))] #3 x 1DHW1
 		vel_lut = tf.concat(vel_lut, axis = -1) #1DHW3
 		return vel_lut
-	
+
 	def _warp_vel_component(self, data, lut, order=1, dt=1.0, clamp="NONE"):
 		if order<1 or order>2:
 			raise ValueError("Unsupported warp order '{}'".format(order))
@@ -617,7 +628,7 @@ class VelocityGrid:
 					corrected = tf.where(clamp_OOB, warped, corrected)
 			warped = corrected
 		return warped
-	
+
 	def warped(self, vel_grid=None, order=1, dt=1.0, clamp="NONE"):
 		if vel_grid is None:
 			#vel_grid = self
@@ -633,15 +644,15 @@ class VelocityGrid:
 				lut_x = vel_grid._lut_warp_vel(self.x_shape, dt)
 			x_warped = self._warp_vel_component(self.x, lut_x, order=order, dt=dt, clamp=clamp)
 			del lut_x
-			
+
 			if vel_grid is None:
 				lut_y = tf.concat([-vel*dt for vel in self._sampled_to_component_shape('Y', concat=False)], axis=-1)
 			else:
 				lut_y = vel_grid._lut_warp_vel(self.y_shape, dt)
 			y_warped = self._warp_vel_component(self.y, lut_y, order=order, dt=dt, clamp=clamp)
 			del lut_y
-			
-			
+
+
 			if vel_grid is None:
 				lut_z = tf.concat([-vel*dt for vel in self._sampled_to_component_shape('Z', concat=False)], axis=-1)
 			else:
@@ -649,7 +660,7 @@ class VelocityGrid:
 			z_warped = self._warp_vel_component(self.z, lut_z, order=order, dt=dt, clamp=clamp)
 			del lut_z
 		return x_warped, y_warped, z_warped
-	
+
 	def copy_warped(self, vel_grid=None, as_var=None, order=1, dt=1.0, device=None, var_name=None, clamp="NONE", trainable=None):
 		if as_var is None:
 			as_var = self.is_var
@@ -661,26 +672,26 @@ class VelocityGrid:
 		grid = VelocityGrid(self.centered_shape, x=x_warped, y=y_warped, z=z_warped, as_var=as_var, \
 			boundary=self.boundary, scale_renderer=self.scale_renderer, warp_renderer=self.warp_renderer, device=device, var_name=var_name, trainable=trainable)
 		return grid
-	
+
 	def divergence_free(self, residual=1e-5):
 		raise NotImplementedError
-	
+
 	def var_list(self):
 		if self.is_var:
 			return [self._x, self._y, self._z]
 		else:
 			raise TypeError("This VelocityGrid is not a variable.")
-	
+
 	def get_variables(self):
 		if self.is_var:
 			return {'velocity_x': self._x, 'velocity_y': self._y, 'velocity_z': self._z}
 		else:
 			raise TypeError("This VelocityGrid is not a variable.")
-	
+
 	def save(self, path):
 		np.savez_compressed(path, centered_shape=self.centered_shape, vel_x=self.x.numpy(), vel_y=self.y.numpy(), vel_z=self.z.numpy())
-	
-	
+
+
 	def assign(self, x,y,z):
 		x_shape = shape_list(x)
 		if not len(x_shape)==5 or not x_shape[-1]==1 or not x_shape[-4:-1]==self.x_shape:
@@ -700,7 +711,7 @@ class VelocityGrid:
 				self._x = tf.identity(x)
 				self._y = tf.identity(y)
 				self._z = tf.identity(z)
-	
+
 	def assign_add(self, x,y,z):
 		x_shape = shape_list(x)
 		if not len(x_shape)==5 or not x_shape[-1]==1 or not x_shape[-4:-1]==self.x_shape:
@@ -720,7 +731,7 @@ class VelocityGrid:
 				self._x = tf.identity(self._x+x)
 				self._y = tf.identity(self._y+y)
 				self._z = tf.identity(self._z+z)
-	
+
 	def assign_sub(self, x,y,z):
 		x_shape = shape_list(x)
 		if not len(x_shape)==5 or not x_shape[-1]==1 or not x_shape[-4:-1]==self.x_shape:
@@ -740,13 +751,13 @@ class VelocityGrid:
 				self._x = tf.identity(self._x-x)
 				self._y = tf.identity(self._y-y)
 				self._z = tf.identity(self._z-z)
-	
+
 	def scale_magnitude(self, scale):
 		if np.isscalar(scale):
 			scale = [scale]*3
 		assert len(scale)==3
 		self.assign(self.x*scale[0],self.y*scale[1], self.z*scale[2])
-	
+
 	def _centered_to_staggered(self, centered):
 		centered_shape = shape_list(centered)
 		assert len(centered_shape)==5
@@ -766,7 +777,7 @@ class VelocityGrid:
 			y = tf.squeeze(self.scale_renderer._sample_transform(y, [centered_y_transform], [staggered_y_transform]),1)
 			z = tf.squeeze(self.scale_renderer._sample_transform(z, [centered_z_transform], [staggered_z_transform]),1)
 		return x,y,z
-	
+
 	def _staggeredTensor_to_components(self, tensor, reverse=False):
 		tensor_shape = GridShape.from_tensor(tensor)
 	#	assert len(tensor_shape)==5
@@ -781,7 +792,7 @@ class VelocityGrid:
 		y = components[0][:,:-1,:,:-1]
 		z = components[0][:,:,:-1,:-1]
 		return x,y,z
-		
+
 	def as_staggeredTensor(self, reverse=False):
 		z = (0,0)
 		p = (0,1)
@@ -793,7 +804,7 @@ class VelocityGrid:
 		if reverse:
 			components = components[::-1]
 		return tf.concat(components, axis=-1)
-	
+
 	def _sampled_to_shape(self, shape):
 		with self.scale_renderer.profiler.sample("velocity to shape"):
 			# uniform scaling, centered grids
@@ -815,7 +826,7 @@ class VelocityGrid:
 					if not shape==self.z_shape else tf.identity(self.z),
 			]
 		return vel_sampled
-	
+
 	def centered(self, pad_lod=False, concat=True):#, shape=None):
 		shape = self.centered_shape
 		with self.warp_renderer.profiler.sample("velocity to centered"):
@@ -831,7 +842,7 @@ class VelocityGrid:
 			if concat:
 				vel_centered = tf.concat(vel_centered, axis=-1) #1DHW[3|4]
 		return vel_centered
-	
+
 	def _sampled_to_component_shape(self, component, pad_lod=False, concat=True):
 		# grids have the same spacing/resolution, so global/constant offset
 		component = component.upper()
@@ -854,19 +865,19 @@ class VelocityGrid:
 				tf.squeeze(self.warp_renderer.resample_grid3D_offset(self.z, \
 					offsets = [[offset_coord_to,0.0,offset_coord_from] if component=='X' else [0.0,offset_coord_to,offset_coord_from],], \
 					target_shape = self.x_shape if component=='X' else self.y_shape), 1))
-			
+
 			if pad_lod:
 				vel_sampled.append(self.lod_pad)#4 x 1DHW1
 			if concat:
 				vel_sampled = tf.concat(vel_sampled, axis=-1) #1DHW[3|4]
 		return vel_sampled
-	
+
 	def centered_lut_grid(self, dt=1.0):
 		vel_centered = self.centered()
 		#vel_lut = tf.concat([self.coords - vel_centered * dt, self.lod_pad], axis = -1)
 		vel_lut = vel_centered * (- dt)
 		return vel_lut
-	
+
 	def warp(self, data, order=1, dt=1.0, clamp="NONE"):
 		with self.warp_renderer.profiler.sample("warp scalar"):
 			v = self.centered_lut_grid(dt)
@@ -875,7 +886,7 @@ class VelocityGrid:
 				raise ValueError("Shape mismatch")
 			LOG.debug("Warping density grid")
 			data_warped = self.warp_renderer._sample_LuT(data, v, True, relative=True)
-			
+
 			clamp = clamp.upper()
 			if order==2: #MacCormack
 				data_warped_back = self.warp_renderer._sample_LuT(data_warped, -v, True, relative=True)
@@ -898,12 +909,12 @@ class VelocityGrid:
 				data_warped = data_corr
 			elif order>2:
 				raise ValueError("Unsupported warp order '{}'".format(order))
-			
+
 			if clamp=='NEGATIVE':
 				data_warped = tf.maximum(data_warped, 0)
-			
+
 			return data_warped
-	
+
 	def with_buoyancy(self, value, scale_grid):
 		# value: [x,y,z]
 		# scale_grid: density 1DHW1
@@ -915,7 +926,7 @@ class VelocityGrid:
 		value = tf.reshape(value, [1,1,1,1,shape_list(value)[0]])
 		buoyancy = value*scale_grid # 1DHW3
 		return self + buoyancy
-	
+
 	"""
 	def apply_buoyancy(self, value, scale_grid):
 		# value: [x,y,z]
@@ -939,7 +950,7 @@ class VelocityGrid:
 		with self.warp_renderer.profiler.sample("magnitude"):
 			v = self.centered(pad_lod=False)*tf.constant(world_scale, dtype=tf.float32)
 			return tf_norm2(v, axis=-1, keepdims=True)
-	
+
 	def stats(self, world_scale=[1,1,1], mask=None, state=None, **warp_kwargs):
 		'''
 			mask: optional binary float mask, stats only consider cells>0.5
@@ -958,12 +969,12 @@ class VelocityGrid:
 			z = tf.boolean_mask(z, mask_z)
 		if mask is not None and mask.dtype!=tf.bool:
 			mask = tf.greater(mask, 0.5)
-		
+
 		divergence = self.divergence(world_scale)
 		if mask is not None: divergence = tf.boolean_mask(divergence, mask)
 		magnitude = self.magnitude(world_scale)
 		if mask is not None: magnitude = tf.boolean_mask(magnitude, mask)
-		
+
 		stats = {
 			'divergence': tf_tensor_stats(divergence, as_dict=True),
 			'magnitude': tf_tensor_stats(magnitude, as_dict=True),
@@ -972,10 +983,10 @@ class VelocityGrid:
 			'velocity_z': tf_tensor_stats(z, as_dict=True),
 			'shape':self.centered_shape, 'bounds':self.outer_bounds,
 		}
-		
+
 		if state is not None and state.prev is not None and state.prev.velocity is not None:
 			prev_warped = state.prev.velocity_advected(**warp_kwargs)
-			
+
 			def vel_warp_SE_stats(prev, curr, mask):
 				warp_SE = tf.squared_difference(prev, curr)
 				if mask is not None:
@@ -984,29 +995,29 @@ class VelocityGrid:
 			stats["warp_x_SE"] = vel_warp_SE_stats(prev_warped.x, self.x, mask_x if mask is not None else None)
 			stats["warp_y_SE"] = vel_warp_SE_stats(prev_warped.y, self.y, mask_y if mask is not None else None)
 			stats["warp_z_SE"] = vel_warp_SE_stats(prev_warped.z, self.z, mask_z if mask is not None else None)
-			
+
 			warp_vdiff_mag = (prev_warped-self).magnitude()
 			if mask is not None:
 				warp_vdiff_mag = tf.boolean_mask(warp_vdiff_mag, mask)
 			stats["warp_vdiff_mag"] = tf_tensor_stats(warp_vdiff_mag, as_dict=True)
 			del warp_vdiff_mag
-			
+
 			vel_CangleRad_mask = tf.greater(state.prev.velocity.magnitude() * self.magnitude(), 1e-8)
 			if mask is not None:
 				vel_CangleRad_mask = tf.logical_and(mask, vel_CangleRad_mask)
 			warp_CangleRad = tf_angle_between(state.prev.velocity.centered(), self.centered(), axis=-1, keepdims=True)
 			stats["warp_angleCM_rad"] = tf_tensor_stats(tf.boolean_mask(warp_CangleRad, vel_CangleRad_mask), as_dict=True)
 			del warp_CangleRad
-			
+
 		else:
 			stats["warp_x_SE"] = tf_tensor_stats(tf.zeros([1,1,1,1,1], dtype=tf.float32), as_dict=True)
 			stats["warp_y_SE"] = tf_tensor_stats(tf.zeros([1,1,1,1,1], dtype=tf.float32), as_dict=True)
 			stats["warp_z_SE"] = tf_tensor_stats(tf.zeros([1,1,1,1,1], dtype=tf.float32), as_dict=True)
 			stats["warp_vdiff_mag"] = tf_tensor_stats(tf.zeros([1,1,1,1,1], dtype=tf.float32), as_dict=True)
 			stats["warp_angleCM_rad"] = tf_tensor_stats(tf.zeros([1,1,1,1,1], dtype=tf.float32), as_dict=True)
-		
+
 		return stats
-	
+
 	def __add__(self, other):
 		if isinstance(other, VelocityGrid):
 			if self.centered_shape!=other.centered_shape:
@@ -1022,7 +1033,7 @@ class VelocityGrid:
 				boundary=self.boundary, scale_renderer=self.scale_renderer, warp_renderer=self.warp_renderer, device=None)
 		else:
 			return NotImplemented
-	
+
 	def __iadd__(self, other):
 		if isinstance(other, VelocityGrid):
 			if self.centered_shape!=other.centered_shape:
@@ -1038,7 +1049,7 @@ class VelocityGrid:
 			return self
 		else:
 			return NotImplemented
-	
+
 	def __sub__(self, other):
 		if isinstance(other, VelocityGrid):
 			if self.centered_shape!=other.centered_shape:
@@ -1054,7 +1065,7 @@ class VelocityGrid:
 				boundary=self.boundary, scale_renderer=self.scale_renderer, warp_renderer=self.warp_renderer, device=None)
 		else:
 			return NotImplemented
-	
+
 	def __isub__(self, other):
 		if isinstance(other, VelocityGrid):
 			if self.centered_shape!=other.centered_shape:
@@ -1081,11 +1092,11 @@ class State:
 		if velocity is not None:
 			assert isinstance(velocity, VelocityGrid)
 			self._velocity = velocity
-		
+
 		self.frame = frame
 		self.prev = prev
 		self.next = next
-		
+
 		self.transform = transform
 		self.targets = targets
 		self.targets_raw = targets_raw
@@ -1093,7 +1104,7 @@ class State:
 		self.target_cameras = None
 		self.images = None
 		self.t = None
-	
+
 	class StateIterator:
 		def __init__(self, state):
 			self.curr_state = state
@@ -1105,7 +1116,7 @@ class State:
 			raise StopIteration
 	def __iter__(self):
 		return self.StateIterator(self)
-	
+
 	@property
 	def density(self):
 		if self._density is not None:
@@ -1118,7 +1129,7 @@ class State:
 			return self._velocity
 		else:
 			raise AttributeError("State for frame {} does not contain velocity".format(self.frame))
-	
+
 	@classmethod
 	def from_file(cls, path, frame, transform=None, as_var=True, boundary=None, scale_renderer=None, warp_renderer=None, device=None, density_filename="density.npz", velocity_filename="velocity.npz"):
 		density = DensityGrid.from_file(os.path.join(path, density_filename), as_var=as_var, scale_renderer=scale_renderer, device=device)
@@ -1126,7 +1137,7 @@ class State:
 			boundary=boundary, scale_renderer=scale_renderer, warp_renderer=warp_renderer, device=device)
 		state = cls(density, velocity, frame, transform=transform)
 		return state
-	
+
 	@classmethod
 	def from_scalarFlow_file(cls, density_path, velocity_path, frame, transform=None, as_var=True, boundary=None, scale_renderer=None, warp_renderer=None, device=None):
 		density = DensityGrid.from_scalarFlow_file(density_path, as_var=as_var, scale_renderer=scale_renderer, device=device)
@@ -1134,7 +1145,7 @@ class State:
 			boundary=boundary, scale_renderer=scale_renderer, warp_renderer=warp_renderer, device=device)
 		state = cls(density, velocity, frame, transform=transform)
 		return state
-	
+
 	def copy(self, as_var=None, device=None):
 		s = State(self.density.copy(as_var=as_var, device=device), self.velocity.copy(as_var=as_var, device=device), self.frame)
 		m = copy.copy(self.__dict__)
@@ -1145,36 +1156,36 @@ class State:
 		for k,v in m.items():
 			setattr(s,k,v)
 		return s
-	
+
 	def copy_warped(self, order=1, dt=1.0, frame=None, as_var=None, targets=None, targets_raw=None, bkgs=None, device=None, clamp="NONE"):
 		d = self.density.copy_warped(order=order, dt=dt, as_var=as_var, device=device, clamp=clamp)
 		v = self.velocity.copy_warped(order=order, dt=dt, as_var=as_var, device=device, clamp=clamp)
 		return State(d, v, frame, transform=self.transform, targets=targets, targets_raw=targets_raw, bkgs=bkgs)
-	
+
 	def get_density_transform(self):
 		if isinstance(self.transform, GridTransform):
 			return self.transform.copy_new_data(self.density.d)
 		else:
 			raise TypeError("state.transform is not a GridTransform")
-	
+
 	def get_velocity_transform(self):
 		if isinstance(self.transform, GridTransform):
 			return self.transform.copy_new_data(self.velocity.lod_pad)
 		else:
 			raise TypeError("state.transform is not a GridTransform")
-	
+
 	def render_density(self, render_ctx, custom_ops=None):
 		imgs = tf.concat(render_ctx.dens_renderer.render_density(self.get_density_transform(), light_list=render_ctx.lights, camera_list=self.target_cameras, cut_alpha=False, monochrome=render_ctx.monochrome, custom_ops=custom_ops), axis=0) #, background=bkg
 		imgs, d = tf.split(imgs, [3,1], axis=-1)
 		t = tf.exp(-d)
 		self.images = imgs
 		self.t = t
-	
+
 	def density_advected(self, dt=1.0, order=1, clamp="NONE"):
 		return self.density.warped(self.velocity, order=order, dt=dt, clamp=clamp)#self.velocity.warp(self.density, scale_renderer)
 	def velocity_advected(self, dt=1.0, order=1, clamp="NONE"):
 		return self.velocity.copy_warped(order=order, dt=dt, as_var=False, clamp=clamp)
-	
+
 	def rescale_density(self, shape, device=None):
 		self._density = self.density.copy_scaled(shape, device=device)
 	def rescale_velocity(self, shape, scale_magnitude=True, device=None):
@@ -1182,7 +1193,7 @@ class State:
 	def rescale(self, dens_shape, vel_shape, device=None):
 		rescale_density(self, dens_shape, device=device)
 		rescale_velocity(self, vel_shape, device=device)
-	
+
 	def var_list(self):
 		var_list = []
 		if self._density is not None:
@@ -1190,7 +1201,7 @@ class State:
 		if self._velocity is not None:
 			var_list += self.velocity.var_list()
 		return var_list
-	
+
 	def get_variables(self):
 		var_dict = {}
 		if self._density is not None:
@@ -1198,7 +1209,7 @@ class State:
 		if self._velocity is not None:
 			var_dict.update(self.velocity.get_variables())
 		return var_dict
-	
+
 	def stats(self, vel_scale=[1,1,1], mask=None, render_ctx=None, **warp_kwargs):
 		target_stats = None
 		if render_ctx is not None and getattr(self, "target_cameras", None) is not None:
@@ -1209,7 +1220,7 @@ class State:
 			if getattr(self, "targets") is not None:
 				target_stats["SE"] = tf_tensor_stats(tf.math.squared_difference(self.images, self.targets), as_dict=True)
 		return self.density.stats(mask=mask, state=self, **warp_kwargs), self.velocity.stats(vel_scale, mask=mask, state=self, **warp_kwargs), target_stats
-	
+
 	def save(self, path, suffix=None):
 		self.density.save(os.path.join(path, 'density.npz' if suffix is None else 'density_'+suffix+'.npz'))
 		self.velocity.save(os.path.join(path, 'velocity.npz' if suffix is None else 'velocity_'+suffix+'.npz'))
@@ -1217,7 +1228,7 @@ class State:
 class Sequence:
 	def __init__(self, states):
 		self.sequence = [state for state in states]
-	
+
 	class SequenceIterator:
 		def __init__(self, sequence):
 			self.seq = sequence
@@ -1230,13 +1241,13 @@ class Sequence:
 			raise StopIteration
 	def __iter__(self):
 		return self.SequenceIterator(self)
-	
+
 	def __getitem__(self, idx):
 		return self.sequence[idx]
-	
+
 	def __len__(self):
 		return len(self.sequence)
-	
+
 	@classmethod
 	def from_file(cls, load_path, frames, transform=None, as_var=True, base_path=None, boundary=None, scale_renderer=None, warp_renderer=None, device=None, density_filename="density.npz", velocity_filename="velocity.npz", frame_callback=lambda idx, frame: None):
 		sequence = []
@@ -1256,7 +1267,7 @@ class Sequence:
 		for i in range(len(sequence)-1):
 			sequence[i].next = sequence[i+1]
 		return cls(sequence)
-	
+
 	@classmethod
 	def from_scalarFlow_file(cls, density_path_mask, velocity_path_mask, frames, transform=None, as_var=True, base_path=None, boundary=None, scale_renderer=None, warp_renderer=None, device=None, vel_frame_offset=1, frame_callback=lambda idx, frame: None):
 		sequence = []
@@ -1276,7 +1287,7 @@ class Sequence:
 		for i in range(len(sequence)-1):
 			sequence[i].next = sequence[i+1]
 		return cls(sequence)
-	
+
 	def copy(self, as_var=None, device=None):
 		s = [_.copy(as_var=as_var, device=device) for _ in self]
 		for i in range(len(s)):
@@ -1285,27 +1296,27 @@ class Sequence:
 			if i<(len(s)-1):
 				s[i].next = s[i+1]
 		return Sequence(s)
-	
+
 	def insert_state(self, state, idx):
 		self.sequence.insert(state, idx)
-	
+
 	def append_state(self, state):
 		self.sequence.append(state)
-	
+
 	def start_iteration(self, iteration):
 		for state in self:
 			ctx.start_iteration(iteration)
-	
+
 	def stats(self, vel_scale=[1,1,1], mask=None, **warp_kwargs):
 		return [_.stats(vel_scale, mask=mask, state=_, **warp_kwargs) for _ in self]
-	
+
 	def save(self, path=None, suffix=None):
 		for state in self:
 			if path is None and hasattr(state, 'data_path'):
 				state.save(state.data_path, suffix)
 			else:
 				state.save(os.path.join(path, 'frame_{:06d}'.format(state.frame)), suffix)
-	
+
 	def densities_advect_fwd(self, dt=1.0, order=1, clamp='NONE'):
 		if clamp is None or clamp.upper()not in ['LOCAL', 'GLOBAL']:
 			for i in range(1, len(self)):

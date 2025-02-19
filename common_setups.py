@@ -56,10 +56,10 @@ RECONSTRUCT_SEQUENCE_SETUP = {
 		},
 		'blend_mode':'BEER_LAMBERT', #BEER_LAMBERT, ALPHA, ADDITIVE
 		'sample_gradients':True,
-		
+
 		'steps_per_cycle':24,
 		'num_images': 24,
-		
+
 		'main_camera':{
 			'base_resolution':[256,1920,1080], #z(depth), y(height), x(width)
 			'resolution_scale':1./3., # only for xy
@@ -74,15 +74,15 @@ RECONSTRUCT_SEQUENCE_SETUP = {
 			'crop_frustum':False, # crop frustum grid to AABB of vidual hull. for performance
 			'crop_frustum_pad':0, # view space cells
 		},
-		
+
 		'allow_static_cameras':False,
 		'allow_fused_rendering':True,
-		
+
 		'background':{
 			'type':'COLOR', #'CAM', 'COLOR', 'NONE'; only for vis-rendering, not used in optimization
 			'color': [0,0.5,1.0], #[0,0.5,0],
 		},
-		
+
 		'lighting':{
 			'ambient_intensity':0.55,
 			'initial_intensity':1.13,
@@ -104,7 +104,7 @@ RECONSTRUCT_SEQUENCE_SETUP = {
 		'clip_grid_pad':3,
 		'crop_grid':False,
 		'hull':'TARGETS', #ALL, TARGETS, ROT, [<ids>, ], empty==ALL
-		
+
 		'simulation':0,
 		'start':140,
 		'stop':142, #exclusive
@@ -169,7 +169,7 @@ RECONSTRUCT_SEQUENCE_SETUP = {
 			'gamma_real':[0.5,2], #range for random gamma correction on real samples (value here is inverse gamma)
 			'gamma_fake':[0.5,2], #range for random gamma correction on fake samples (value here is inverse gamma)
 		#	'gamma_loss':[0.5,2], #range for random gamma correction applied to input when evaluating the disc as loss (for density) (value here is inverse gamma)
-			
+
 		},
 		'load_sequence':None, #only for rendering without optimization
 		'load_sequence_pre_opt':False,
@@ -177,13 +177,13 @@ RECONSTRUCT_SEQUENCE_SETUP = {
 	'training':{
 		'iterations':5000,#30000,
 		'frame_order':'FWD', #FWD, BWD, RAND
-		
+
 		'resource_device':'/cpu:0', #'/cpu:0', '/gpu:0'
-		
+
 		#'loss':'L2',
 		'train_res_down':8,
 		'loss_active_eps':1e-18, #minimum absolute value of a loss scale for the loss to be considered active (to prevent losses scaled to (almost) 0 from being evaluated)
-		
+
 		'density':{
 			'optim_beta':0.9,
 			'use_hull':True,
@@ -207,7 +207,7 @@ RECONSTRUCT_SEQUENCE_SETUP = {
 				'first':{ #settings for first frame
 					'iterations':5000,#30000,
 					'learning_rate':{'type':'exponential', 'start':0.0002, 'base':0.5, 'scale':2/30000},
-					
+
 					'raw_target_loss':1.,
 					'preprocessed_target_loss':0.,
 					'target_depth_smoothness_loss':0.,
@@ -224,7 +224,7 @@ RECONSTRUCT_SEQUENCE_SETUP = {
 				'iterations':2400,#5000,
 				'seq_init':"WARP", #WARP, COPY, BASE
 				'learning_rate':{'type':'exponential', 'start':0.0002, 'base':0.5, 'scale':1/3000}, #{'type':'exponential', 'start':0.00005, 'base':0.5, 'scale':2/30000},
-				
+
 				'raw_target_loss':1.,
 				'preprocessed_target_loss':0.,
 				'target_depth_smoothness_loss':0.,
@@ -236,26 +236,26 @@ RECONSTRUCT_SEQUENCE_SETUP = {
 				'temporal_smoothness_loss':0.0,#0.2
 				'discriminator_loss':[0.0, 0.0, 1.2e-3, 1.2e-3/2000, 400],#0.004,
 				'warp_loss':0.0,
-				
+
 				'inspect_gradients':1,
 			},
 			'learning_rate':{'type':'exponential', 'start':0.00015, 'base':0.5, 'scale':2/30000},#0.00015, #[0.00001,0.00001,0.0001, 0.00009/20000, 4000],
-			
+
 		#	'loss':'L2',
 			'raw_target_loss':1.,#0.3, [float('-inf'),float('+inf'), 0.0, 0], #[min, max, step, offset]
 			'preprocessed_target_loss':0.,# [float('-inf'),float('+inf'), 0.0, 0], #[min, max, step, offset]
 			'target_depth_smoothness_loss':0.,
 			'hull':0.,
 			'negative':0.,
-			
+
 			'smoothness_loss':0.0, #1.0
 			'smoothness_neighbours':3, # the kind of neighbourhood to consider in the edge filter (e.g. wether to use diagonals), NOT the kernel size.
 			'smoothness_loss_2':0.0,#0.2
 			'temporal_smoothness_loss':0.0,#0.2
-			
+
 			'discriminator_loss':1.2e-3,
 			'warp_loss':[0.0,0.0,2., 2./20000, 0],# [float('-inf'),float('+inf'), 0.0, 0], #[min, max, step, offset] #{'type':'schedule','schedule':[0.0,0.0,1.0,1.0/6000,6000]} 4000
-			
+
 			'main_warp_fwd':False,
 			'warp_gradients':{
 				'weight':sSchedule.setup_constant_schedule(start=1.0),
@@ -263,11 +263,11 @@ RECONSTRUCT_SEQUENCE_SETUP = {
 				'decay':sSchedule.setup_constant_schedule(start=0.9), #[0,1], lower is faster decay
 				'update_first_only':False,
 			},
-			
+
 			"view_interpolation":{
 				"steps":0,
 			},
-			
+
 			'grow':{ # not yet used
 				"factor":1.2,#2. factor per interval, max down-scaling is factor^len(intervals)
 				"pre_grow_actions":[],# "WARP", list
@@ -292,7 +292,7 @@ RECONSTRUCT_SEQUENCE_SETUP = {
 				'first':{ #settings for first frame
 					'iterations':10000, #30000,
 					'learning_rate':0.04, #{'type':'exponential', 'start':0.04, 'base':0.5, 'scale':1/10000},
-					
+
 					'density_warp_loss':1.0,
 					'velocity_warp_loss':0.0,
 					'smoothness_loss':0.0,
@@ -310,13 +310,13 @@ RECONSTRUCT_SEQUENCE_SETUP = {
 						'intervals':[200, 260, 330, 400, 460, 530, 600, 660, 800, 930, 1060, 1260], #7490 (ca. 1/3)
 						#'intervals':[60, 80, 100, 120, 140, 160, 180, 200, 240, 280, 320, 380], #2260
 					},
-				
+
 				},
 				#settings for remaining frames
 				'iterations':2000, #2000,
 				'seq_init':"WARP", #WARP, COPY, BASE
 				'learning_rate':0.02, #{'type':'exponential', 'start':0.0004, 'base':0.5, 'scale':3/30000},
-				
+
 				'density_warp_loss':1.0,
 				'velocity_warp_loss':0.0,
 				'smoothness_loss':0.0,
@@ -325,7 +325,7 @@ RECONSTRUCT_SEQUENCE_SETUP = {
 				'divergence_loss':0.3,
 				#'divergence_normalize':0.0,
 				'magnitude_loss':0.0,
-				
+
 				'grow':{
 					"factor":1.2,#2. factor per interval, max down-scaling is factor^len(intervals)
 					"scale_magnitude":True,
@@ -335,28 +335,28 @@ RECONSTRUCT_SEQUENCE_SETUP = {
 			'noise_std':sSchedule.setup_constant_schedule(start=0.0),
 			'learning_rate':{'type':'exponential', 'start':0.02, 'base':0.5, 'scale':2/30000},#0.05,#[0.0,0.0,0.005,0.005/6000,6000]
 		#	'lr_decay':0.00,
-			
+
 		#	'loss':'L2',
-			
+
 			'density_warp_loss':1.0,#influence of loss(A(dt, vt), dt+1) on velocity, can be a schedule
 			'velocity_warp_loss':1.0,#influence of loss(A(vt, vt), vt+1) on velocity, can be a schedule
-			
+
 			'smoothness_loss':0.0,#0.005, [float('-inf'),float('+inf'), 0.0, 0], #[min, max, step, offset] [0.0,0.0002, 0.0002/5000, 25000],#
 			'smoothness_neighbours':3, # the kind of neighbourhood to consider in the edge filter (e.g. wether to use diagonals), NOT the kernel size.
 			'cossim_loss':0.0,
-			
+
 			'divergence_loss':0.3,#0.03, [0.0,0.0,0.05, 0.05/26000, 2600], #[float('-inf'),float('+inf'), 0.0, 0], #[min, max, step, offset] [0.0,0.05, 0.05/10000, 0] 2000
 			'divergence_normalize':0.0,
-			
+
 			'magnitude_loss':0.0,#0.00001, [float('-inf'),float('+inf'), 0.0, 0], #[min, max, step, offset] [0.0,0.05, 0.05/10000, 0]
 			#'warp_loss':0.1,# [float('-inf'),float('+inf'), 0.0, 0], #[min, max, step, offset] 4000
-			
+
 			'warp_gradients':{
 				'weight':sSchedule.setup_constant_schedule(start=1.0), #affects warp gradients for velocity from backward dens warp, even if vel- warp gradients are inactive
 				'active':False,
 				'decay':sSchedule.setup_constant_schedule(start=0.9), #[0,1], lower is faster decay
 			},
-			
+
 			'grow':{
 				"factor":1.2,#2. factor per interval, max down-scaling is factor^len(intervals)
 				"scale_magnitude":True,
@@ -371,8 +371,8 @@ RECONSTRUCT_SEQUENCE_SETUP = {
 			"max":6.0,
 			"learning_rate":{'type':'exponential', 'start':0.001, 'base':1, 'scale':0},
 		},
-		
-		
+
+
 		'discriminator':{
 			'active':False,
 			'model':None,#'[RUNID:000000-000000]disc_model.h5',#
@@ -402,17 +402,17 @@ RECONSTRUCT_SEQUENCE_SETUP = {
 				'regularization':0.0,
 			},
 			'train':True,
-			'learning_rate':2e-4,#0.00008, 
+			'learning_rate':2e-4,#0.00008,
 			'steps':1,
 			'regularization':0.0,
 			'optim_beta':0.5,
-			
+
 			'grow':{ # not yet used
 				"factor":2.,#2. factor per interval, max down-scaling is factor^len(intervals)
 				#iterations for each grow step, empty to disable
 				'intervals':[]
 			},
-			
+
 			'conditional_hull':False,
 			'temporal_input':{
 				'active':False,
@@ -434,7 +434,7 @@ RECONSTRUCT_SEQUENCE_SETUP = {
 				'reset_on_density_grow':True,
 			#	'reset_on_discriminator_grow':False,
 			},
-			
+
 		#	'sequence_reuse':True,
 		},#discriminator
 		'summary_interval':200,
@@ -477,10 +477,10 @@ RECONSTRUCT_SEQUENCE_SETUP_BASE = {
 		},
 		'blend_mode':'BEER_LAMBERT', #BEER_LAMBERT, ALPHA, ADDITIVE
 		'sample_gradients':True,
-		
+
 		'steps_per_cycle':24,
 		'num_images': 24,
-		
+
 		'main_camera':{
 			'base_resolution':[256,1920,1080], #z(depth), y(height), x(width)
 			'resolution_scale':1./3., # only for xy
@@ -495,15 +495,15 @@ RECONSTRUCT_SEQUENCE_SETUP_BASE = {
 			'crop_frustum':False, # crop frustum grid to AABB of vidual hull. for performance
 			'crop_frustum_pad':2, # view space cells
 		},
-		
+
 		'allow_static_cameras':False,
 		'allow_fused_rendering':True,
-		
+
 		'background':{
 			'type':'COLOR', #'CAM', 'COLOR', 'NONE'; only for vis-rendering, not used in optimization
 			'color': [0,0.5,1.0], #[0,0.5,0],
 		},
-		
+
 		'lighting':{
 			#'scattering_ratio':1.,
 			'ambient_intensity':0.55,
@@ -526,7 +526,7 @@ RECONSTRUCT_SEQUENCE_SETUP_BASE = {
 		'clip_grid_pad':4,
 		'crop_grid':True,
 		'hull':'TARGETS', #ALL, TARGETS, ROT, [<ids>, ], empty==ALL
-		
+
 		'simulation':0,
 		'start':140,
 		'stop':142, #exclusive
@@ -587,7 +587,7 @@ RECONSTRUCT_SEQUENCE_SETUP_BASE = {
 			'gamma_real':[0.5,2], #range for random gamma correction on real samples (value here is inverse gamma)
 			'gamma_fake':[0.5,2], #range for random gamma correction on fake samples (value here is inverse gamma)
 		#	'gamma_loss':[0.5,2], #range for random gamma correction applied to input when evaluating the disc as loss (for density) (value here is inverse gamma)
-			
+
 		},
 		'load_sequence':None, #only for rendering without optimization
 		'load_sequence_pre_opt':False,
@@ -595,13 +595,13 @@ RECONSTRUCT_SEQUENCE_SETUP_BASE = {
 	'training':{
 		'iterations':5000,
 		'frame_order':'FWD', #FWD, BWD, RAND
-		
+
 		'resource_device':'/cpu:0', #'/cpu:0', '/gpu:0'
-		
+
 		#'loss':'L2',
 		'train_res_down':6,
 		'loss_active_eps':1e-18, #minimum absolute value of a loss scale for the loss to be considered active (to prevent losses scaled to (almost) 0 from being evaluated)
-		
+
 		'density':{
 			'optim_beta':0.9,
 			'use_hull':True,
@@ -625,7 +625,7 @@ RECONSTRUCT_SEQUENCE_SETUP_BASE = {
 				'first':{ #settings for first frame
 					'iterations':5000,#30000,
 					'learning_rate':{'type':'exponential', 'start':3.0, 'base':0.5, 'scale':2/30000},
-					
+
 					'raw_target_loss':8.7e-7 *20,
 					'preprocessed_target_loss':0.,
 					'target_depth_smoothness_loss':0.,
@@ -642,7 +642,7 @@ RECONSTRUCT_SEQUENCE_SETUP_BASE = {
 				'iterations':2400,#5000,
 				'seq_init':"WARP", #WARP, COPY, BASE
 				'learning_rate':{'type':'exponential', 'start':3.0, 'base':0.5, 'scale':1/3000}, #{'type':'exponential', 'start':0.00005, 'base':0.5, 'scale':2/30000},
-				
+
 				'raw_target_loss':8.7e-7 *20,
 				'preprocessed_target_loss':0.,
 				'target_depth_smoothness_loss':0.,
@@ -654,25 +654,25 @@ RECONSTRUCT_SEQUENCE_SETUP_BASE = {
 				'temporal_smoothness_loss':0.0,#0.2
 				'discriminator_loss':0.0,
 				'warp_loss':0.0,
-				
+
 				'inspect_gradients':1,
 			},
 			'learning_rate':{'type':'exponential', 'start':2.45, 'base':0.5, 'scale':2/30000},#0.00015, #[0.00001,0.00001,0.0001, 0.00009/20000, 4000],
-			
+
 			'raw_target_loss':8.7e-7 *20,#for AE; for SE *40; for Huber *80
 			'preprocessed_target_loss':0.,
 			'target_depth_smoothness_loss':0.,
 			'hull':0.,#1e-12,
 			'negative':0.,#1e-12,
-			
-			'smoothness_loss':0.0, 
+
+			'smoothness_loss':0.0,
 			'smoothness_neighbours':3, # the kind of neighbourhood to consider in the edge filter (e.g. wether to use diagonals), NOT the kernel size.
 			'smoothness_loss_2':0.0,
 			'temporal_smoothness_loss':0.0,#0.2
-			
+
 			'discriminator_loss':1.5e-5,
 			'warp_loss':[6.7e-11 *4,6.7e-11 *4,13.4e-11 *4, 6.7e-11 *4/2000, 2000],#for AE; for SE *8, for Huber *24
-			
+
 			'main_warp_fwd':False,
 			'warp_gradients':{
 				'weight':sSchedule.setup_constant_schedule(start=1.0),
@@ -683,8 +683,8 @@ RECONSTRUCT_SEQUENCE_SETUP_BASE = {
 			"view_interpolation":{
 				"steps":0,
 			},
-			
-			'grow':{ 
+
+			'grow':{
 				"factor":1.2,#2. factor per interval, max down-scaling is factor^len(intervals)
 				"pre_grow_actions":[],# "WARP", list, unused
 				"post_grow_actions":[],# "WARP", list
@@ -707,7 +707,7 @@ RECONSTRUCT_SEQUENCE_SETUP_BASE = {
 				'first':{ #settings for first frame
 					'iterations':10000,
 					'learning_rate':0.04,
-					
+
 					'density_warp_loss':8.2e-11 *5,
 					'velocity_warp_loss':0.0,
 					'smoothness_loss':0.0,
@@ -722,13 +722,13 @@ RECONSTRUCT_SEQUENCE_SETUP_BASE = {
 						"scale_magnitude":True,
 						'intervals':[200, 260, 330, 400, 460, 530, 600, 660, 800, 930, 1060, 1260], #7490
 					},
-				
+
 				},
 				#settings for remaining frames
 				'iterations':1200,
 				'seq_init':"WARP", #WARP, COPY, BASE
 				'learning_rate':0.02,
-				
+
 				'density_warp_loss':8.2e-11 *5,
 				'velocity_warp_loss':0.0,
 				'smoothness_loss':0.0,
@@ -737,7 +737,7 @@ RECONSTRUCT_SEQUENCE_SETUP_BASE = {
 				'divergence_loss':4.3e-10 *6,
 				#'divergence_normalize':0.0,
 				'magnitude_loss':0.0,#4e-12,
-				
+
 				'grow':{
 					"factor":1.2,#2. factor per interval, max down-scaling is factor^len(intervals)
 					"scale_magnitude":True,
@@ -747,27 +747,27 @@ RECONSTRUCT_SEQUENCE_SETUP_BASE = {
 			'noise_std':sSchedule.setup_constant_schedule(start=0.0),
 			'learning_rate':{'type':'exponential', 'start':0.02, 'base':0.5, 'scale':2/30000},
 		#	'lr_decay':0.00,
-			
+
 		#	'loss':'L2',
-			
+
 			'density_warp_loss':8.2e-11 *5,#for AE; for SE *10; for Huber *25 #influence of loss(A(dt, vt), dt+1) on velocity, can be a schedule
 			'velocity_warp_loss':sSchedule.setup_linear_schedule_2(start=1.35e-11 *3, end=1.35e-11 *6, steps=5000), #2.7e-12 *5,#for AE; for SE *10; for Huber *20 #influence of loss(A(vt, vt), vt+1) on velocity, can be a schedule
-			
+
 			'smoothness_loss':0.0,
 			'smoothness_neighbours':3, # the kind of neighbourhood to consider in the edge filter (e.g. wether to use diagonals), NOT the kernel size.
 			'cossim_loss':0.0,
-			
+
 			'divergence_loss':sSchedule.setup_exponential_schedule(start=4.3e-10 *6, base=1.2, scale=1/500),
 			'divergence_normalize':0.0,
-			
+
 			'magnitude_loss':0.0,#1e-12,
-			
+
 			'warp_gradients':{
 				'weight':sSchedule.setup_constant_schedule(start=1.0), #affects warp gradients for velocity from backward dens warp, even if vel- warp gradients are inactive
 				'active':False,
 				'decay':sSchedule.setup_constant_schedule(start=0.9), #[0,1], lower is faster decay
 			},
-			
+
 			'grow':{
 				"factor":1.2,#2. factor per interval, max down-scaling is factor^len(intervals)
 				"scale_magnitude":True,
@@ -789,13 +789,13 @@ RECONSTRUCT_SEQUENCE_SETUP_BASE = {
 	#		"max":1.0,
 	#		"learning_rate":{'type':'exponential', 'start':0.001, 'base':1, 'scale':0},
 	#	},
-		
-		
+
+
 		'discriminator':{
 			'active':False,
 			'model':None,#'[RUNID:000000-000000]disc_model.h5',#
 			'loss_type':"RaLSGAN", #"SGAN", "RpSGAN", "RpLSGAN", "RaSGAN", "RaLSGAN"
-			'target_label':1.0,#0.9, #0.9 for label smoothing, 1.0 for LS-GAN 
+			'target_label':1.0,#0.9, #0.9 for label smoothing, 1.0 for LS-GAN
 			# l4s
 			'layers':[16,16,24,24,32,32,32,64,64,64,16, 4],
 			'stride':[ 2, 1, 2, 1, 2, 1, 1, 2, 1, 1, 1, 1],
@@ -823,13 +823,13 @@ RECONSTRUCT_SEQUENCE_SETUP_BASE = {
 			'steps':1,
 			'regularization':0.002,
 			'optim_beta':0.5,
-			
+
 			'grow':{ # not yet used
 				"factor":2.,#2. factor per interval, max down-scaling is factor^len(intervals)
 				#iterations for each grow step, empty to disable
 				'intervals':[]
 			},
-			
+
 			'conditional_hull':False,
 			'temporal_input':{
 				'active':False,
@@ -849,7 +849,7 @@ RECONSTRUCT_SEQUENCE_SETUP_BASE = {
 				'reset_on_density_grow':True,
 			#	'reset_on_discriminator_grow':False,
 			},
-			
+
 		#	'sequence_reuse':True,
 		},#discriminator
 		'summary_interval':200,
@@ -883,7 +883,7 @@ RECONSTRUCT_SEQUENCE_SETUP_GROW = {
 				},
 				'iterations':400,
 			},
-			'grow':{ 
+			'grow':{
 				"factor":1.2,
 				"pre_grow_actions":[],
 				"post_grow_actions":[],
@@ -951,7 +951,7 @@ RECONSTRUCT_SEQUENCE_SETUP_GROW_DGRADWARP_FRONT = {
 				},
 				'iterations':600,
 			},
-			'grow':{ 
+			'grow':{
 				"factor":1.2,
 				"pre_grow_actions":[],
 				"post_grow_actions":[],
@@ -1000,7 +1000,7 @@ def reconstruct_sequence_setup_compatibility(setup, log_func=lambda s, *p: None)
 		setup.data.density.target_type = "SYNTHETIC" if setup.data.density.synthetic_target else "RAW"
 		log_key_update('setup.data.density.synthetic_target', setup.data.density.synthetic_target, 'setup.data.density.target_type', setup.data.density.target_type)
 		del setup.data.density.synthetic_target
-	
+
 	# adjustments for mechanical changes
 	#	if using data from before the sampling step correction: multiply density with 256, warn about loss and shadow/light scaling
 
